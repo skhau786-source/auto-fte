@@ -1,0 +1,6 @@
+{
+  "name": "Digital FTE",
+  "description": "An interactive unified Auth Screen for Digital FTE autonomous AI employees, featuring a 50/50 desktop split layout and an interactive SVG-based robot that reacts in real-time to input focus, password visibility, and user interactions.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
