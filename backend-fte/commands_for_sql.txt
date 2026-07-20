@@ -1,0 +1,7 @@
+docker exec -it digital-fte-db-1 psql -U postgres -d digital_fte
+
+for listing all tables:
+\dt
+
+SELECT * FROM registered_students;
+SELECT * FROM login_users;
