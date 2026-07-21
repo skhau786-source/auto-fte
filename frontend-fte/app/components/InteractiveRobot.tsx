@@ -7,21 +7,25 @@ interface RobotProps {
   isPasswordFocused: boolean;
   isPasswordVisible: boolean;
   isFullNameFocused?: boolean;
+  isWaving?: boolean;
 }
 
 export function InteractiveRobot({ 
   isEmailFocused, 
   isPasswordFocused, 
   isPasswordVisible, 
-  isFullNameFocused = false 
+  isFullNameFocused = false,
+  isWaving = false
 }: RobotProps) {
   const robotRef = useRef<HTMLDivElement>(null);
   const [pupilOffset, setPupilOffset] = useState({ x: 0, y: 0 });
   const [isBlinking, setIsBlinking] = useState(false);
 
-  let state: "private" | "wink" | "surprised" | "idle" = "idle";
+  let state: "private" | "wink" | "surprised" | "wave" | "idle" = "idle";
   
-  if (isPasswordFocused) {
+  if (isWaving) {
+    state = "wave";
+  } else if (isPasswordFocused) {
     if (isPasswordVisible) {
       state = "private";
     } else {
@@ -33,7 +37,7 @@ export function InteractiveRobot({
 
   useEffect(() => {
     const interval = setInterval(() => {
-      if (state === "idle") {
+      if (state === "idle" || state === "wave") {
         setIsBlinking(true);
         setTimeout(() => setIsBlinking(false), 150);
       }
@@ -231,8 +235,8 @@ export function InteractiveRobot({
 
         {/* DYNAMIC ROBOT FACE EXPRESSIONS */}
         
-        {/* IDLE STATE */}
-        <g id="expr-idle" className={`transition-opacity duration-300 ${state === "idle" ? "opacity-100" : "opacity-0"}`}>
+        {/* IDLE / WAVE STATE (same friendly open-eyed face) */}
+        <g id="expr-idle" className={`transition-opacity duration-300 ${state === "idle" || state === "wave" ? "opacity-100" : "opacity-0"}`}>
           {isBlinking ? (
             <>
               <line x1="135" y1="176" x2="171" y2="176" stroke="#22d3ee" strokeWidth="7" strokeLinecap="round" className="glow-cyan" />
@@ -357,6 +361,39 @@ export function InteractiveRobot({
               <circle cx="215" cy="220" r="11" fill="url(#accentGrad)" filter="url(#softShadow)" />
               <path d="M 215 220 L 215 204" stroke="#7c3aed" strokeWidth="5.5" strokeLinecap="round" />
               <path d="M 215 220 Q 223 222 221 216" stroke="#7c3aed" strokeWidth="3.5" strokeLinecap="round" />
+            </>
+          ) : state === "wave" ? (
+            <>
+              {/* Raised arm reaching up beside the head */}
+              <path 
+                d="M 295 295 Q 330 250 318 192" 
+                stroke="url(#headCaseGrad)" 
+                strokeWidth="18" 
+                strokeLinecap="round" 
+                filter="url(#softShadow)" 
+              />
+              <path 
+                d="M 295 295 Q 330 250 318 192" 
+                stroke="url(#bezelGrad)" 
+                strokeWidth="13" 
+                strokeLinecap="round" 
+                opacity="0.5"
+              />
+              {/* Waving hand — rotates back and forth around the wrist point */}
+              <g id="waving-hand">
+                <animateTransform
+                  attributeName="transform"
+                  type="rotate"
+                  values="-22 318 190; 22 318 190; -22 318 190"
+                  dur="0.65s"
+                  repeatCount="indefinite"
+                />
+                <circle cx="318" cy="190" r="12" fill="url(#accentGrad)" stroke="#7c3aed" strokeWidth="2.5" filter="url(#softShadow)" />
+                <path d="M 318 190 L 318 170" stroke="#7c3aed" strokeWidth="5" strokeLinecap="round" />
+                <path d="M 318 190 L 332 178" stroke="#7c3aed" strokeWidth="4.5" strokeLinecap="round" />
+                <path d="M 318 190 L 334 196" stroke="#7c3aed" strokeWidth="4.5" strokeLinecap="round" />
+                <path d="M 318 190 L 330 204" stroke="#7c3aed" strokeWidth="4" strokeLinecap="round" />
+              </g>
             </>
           ) : (
             <>

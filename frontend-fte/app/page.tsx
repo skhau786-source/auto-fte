@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState } from "react";
 import { useGoogleLogin } from "@react-oauth/google";
 import { 
   Mail, 
@@ -14,9 +14,7 @@ import {
   ShoppingBag, 
   Chrome, 
   TrendingUp, 
-  Copy, 
   Check, 
-  RotateCcw, 
   LogOut, 
   ShieldCheck, 
   AlertCircle,
@@ -27,7 +25,6 @@ import {
   Calendar,
   MessageCircle,
   Settings,
-  Link2,
   Loader2,
   Twitter,
   Facebook,
@@ -41,7 +38,6 @@ import {
   BarChart3,
   DollarSign,
   Bell,
-  Activity,
 } from "lucide-react";
 import { InteractiveRobot } from "./components/InteractiveRobot";
 
@@ -79,6 +75,7 @@ export default function AuthPage() {
   // Simulation states
   const [loading, setLoading] = useState(false);
   const [authenticatedUser, setAuthenticatedUser] = useState<string | null>(null);
+  const [flowMode, setFlowMode] = useState<"landing" | "auth" | "onboarding" | "dashboard">("landing");
   const [toasts, setToasts] = useState<{ id: string; message: string; type: "success" | "info" | "error" }[]>([]);
   
   // Forgot Password modal
@@ -89,7 +86,6 @@ export default function AuthPage() {
   const [showShopifyModal, setShowShopifyModal] = useState(false);
   const [shopifyDomain, setShopifyDomain] = useState("");
   const [shopifyConnecting, setShopifyConnecting] = useState(false);
-  const [dashboardView, setDashboardView] = useState<"command" | "inventory">("command");
 
   // SOCIAL MEDIA STATES
   const [instagramConnected, setInstagramConnected] = useState(false);
@@ -118,15 +114,13 @@ export default function AuthPage() {
 
   // Global SEO States
   const [showSEOModal, setShowSEOModal] = useState(false);
-  const [showCodeViewer, setShowCodeViewer] = useState(false);
-  const [copiedCode, setCopiedCode] = useState(false);
 
   // ONBOARDING FLOW STATES
   const [onboardingStep, setOnboardingStep] = useState(1);
   const [websiteUrl, setWebsiteUrl] = useState('');
   const [isConnecting, setIsConnecting] = useState(false);
-  const [isReady, setIsReady] = useState(false);
   const [showDashboard, setShowDashboard] = useState(false);
+  const [isReady, setIsReady] = useState(false);
 
   // 🆕 SIDEBAR DASHBOARD STATE
   const [activeTab, setActiveTab] = useState('dashboard');
@@ -138,6 +132,48 @@ export default function AuthPage() {
     setTimeout(() => {
       setToasts((prev) => prev.filter((t) => t.id !== id));
     }, 4000);
+  };
+
+  const normalizeUserEmail = (value?: string | null) => {
+    const trimmedValue = value?.trim();
+    return trimmedValue || "user@example.com";
+  };
+
+  // Time-based greeting for onboarding welcome screen
+  const getTimeBasedGreeting = () => {
+    const hour = new Date().getHours();
+    if (hour < 12) return "Good morning";
+    if (hour < 17) return "Good afternoon";
+    return "Good evening";
+  };
+
+  // Extract a friendly display name from the user's email
+  const getDisplayName = (emailValue: string | null) => {
+    if (!emailValue) return "there";
+    const namePart = emailValue.split("@")[0];
+    if (!namePart) return "there";
+    return namePart.charAt(0).toUpperCase() + namePart.slice(1);
+  };
+
+  const enterOnboardingFlow = (userEmail: string, successMessage: string) => {
+    const safeEmail = normalizeUserEmail(userEmail);
+    setAuthenticatedUser(safeEmail);
+    setFlowMode("onboarding");
+    setCurrentView("auth");
+    setShowDashboard(false);
+    setOnboardingStep(2);
+    setLoading(false);
+    setIsConnecting(false);
+    setIsReady(false);
+    setShopifyConnected(false);
+    setInstagramConnected(false);
+    setFacebookConnected(false);
+    setTiktokConnected(false);
+    setYoutubeConnected(false);
+    setTwitterConnected(false);
+    setWebsiteUrl('');
+    setActiveTab('dashboard');
+    showToast(successMessage, "success");
   };
 
   // Website URL Validation
@@ -210,9 +246,13 @@ export default function AuthPage() {
         });
         const userInfo = await response.json();
         
-        setLoading(false);
-        setAuthenticatedUser(userInfo.email);
-        showToast(`Welcome ${userInfo.name}! Successfully logged in with Google.`, "success");
+        const googleUserEmail = normalizeUserEmail(userInfo.email);
+
+        // Directly enter onboarding flow (sets authenticatedUser + onboardingStep together,
+        // same as manual login) — avoids an empty "step 1" flash before step 2 renders.
+        setTimeout(() => {
+          enterOnboardingFlow(googleUserEmail, `Welcome ${userInfo.name || "there"}! Successfully logged in with Google.`);
+        }, 1500);
         
         try {
           await fetch(buildApiUrl("/api/auth/google"), {
@@ -259,14 +299,11 @@ export default function AuthPage() {
     showToast(authMode === "signin" ? "Verifying secure credentials..." : "Provisioning Digital FTE container instance...", "info");
     
     setTimeout(() => {
-      setLoading(false);
-      setAuthenticatedUser(email);
-      setOnboardingStep(2);
-      showToast(
-        authMode === "signin" 
-          ? "Login successful! Let's set up your store." 
-          : "Account created! Let's set up your store.", 
-        "success"
+      enterOnboardingFlow(
+        email,
+        authMode === "signin"
+          ? "Login successful! Let's set up your store."
+          : "Account created! Let's set up your store."
       );
     }, 2000);
   };
@@ -286,19 +323,13 @@ export default function AuthPage() {
     }, 3000);
   };
 
-  const handleCopyCode = () => {
-    navigator.clipboard.writeText(RAW_SOURCE_CODE);
-    setCopiedCode(true);
-    showToast("Component source code copied to clipboard!", "success");
-    setTimeout(() => setCopiedCode(false), 2000);
-  };
-
   // Check if any social account is connected
   const isAnySocialConnected = instagramConnected || facebookConnected || tiktokConnected || youtubeConnected || twitterConnected;
 
   // Logout function with full reset
   const handleLogout = () => {
     setAuthenticatedUser(null);
+    setFlowMode("landing");
     setCurrentView("landing");
     setOnboardingStep(1);
     setShowDashboard(false);
@@ -318,10 +349,13 @@ export default function AuthPage() {
     setShowCommentsModal(false);
     setShowSettingsModal(false);
     setShowSEOModal(false);
-    setDashboardView("command");
     setActiveTab('dashboard');
     showToast("Logged out successfully.", "info");
   };
+
+  const isAuthenticated = Boolean(authenticatedUser);
+  const isOnboardingActive = isAuthenticated && flowMode === "onboarding";
+  const isDashboardActive = isAuthenticated && flowMode === "dashboard";
 
   return (
     <div id="auth-screen-root" className="min-h-screen bg-[#F5F3FF] text-slate-900 flex flex-col font-sans transition-all duration-300">
@@ -417,8 +451,8 @@ export default function AuthPage() {
       {/* MAIN CONTAINER */}
       <main className={`flex-1 flex flex-col ${currentView === "landing" && !authenticatedUser ? "py-6 px-4 sm:px-6 lg:px-8" : "justify-center py-6 px-4 sm:px-6 lg:px-8"}`}>
         
-        {authenticatedUser ? (
-          showDashboard ? (
+        {isAuthenticated ? (
+          isDashboardActive || showDashboard ? (
             // 🆕 SIDEBAR DASHBOARD - NEXT LEVEL
             <div className="flex h-[calc(100vh-80px)] w-full max-w-7xl mx-auto gap-4">
               
@@ -1027,29 +1061,64 @@ export default function AuthPage() {
               <div className="p-8">
                 {/* ========== STEP 2: Welcome ========== */}
                 {onboardingStep === 2 && (
-                  <div className="animate-fade-in text-center py-8">
-                    <div className="w-24 h-24 rounded-full bg-gradient-to-br from-emerald-400 to-green-500 text-white flex items-center justify-center mx-auto text-5xl animate-bounce shadow-xl shadow-emerald-500/30">
-                      👋
+                  <div className="animate-fade-in text-center py-8 relative overflow-hidden">
+                
+
+                    <div className="relative w-32 h-32 mx-auto">
+                      <div className="absolute inset-0 rounded-full bg-violet-400/20 blur-2xl animate-pulse-slow" />
+                      <div className="relative w-32 h-32 rounded-full bg-gradient-to-br from-slate-950 to-violet-950 border border-violet-500/30 flex items-center justify-center p-4 shadow-xl shadow-violet-500/25">
+                        <InteractiveRobot isEmailFocused={false} isPasswordFocused={false} isPasswordVisible={false} isFullNameFocused={false} />
+                      </div>
+                      <div className="absolute -bottom-1.5 -right-1.5 bg-white rounded-full p-1.5 shadow-lg border border-violet-100">
+                        <Sparkles className="w-4 h-4 text-violet-500 animate-pulse" />
+                      </div>
                     </div>
-                    <h3 className="text-3xl font-extrabold text-slate-900 mt-4">Welcome to Digital FTE!</h3>
+
+                    {/* Robot's speech bubble */}
+                    <div className="mt-4 flex justify-center">
+                      <div className="relative bg-white border border-violet-200 rounded-2xl px-5 py-2.5 shadow-md">
+                        <p className="text-base font-bold text-violet-700">Hi {getDisplayName(authenticatedUser)}! 👋</p>
+                        <div className="absolute -top-1.5 left-1/2 -translate-x-1/2 w-3 h-3 bg-white border-t border-l border-violet-200 rotate-45" />
+                      </div>
+                    </div>
+
+                    <h3 className="text-2xl font-extrabold text-slate-900 mt-4">{getTimeBasedGreeting()}! Welcome to Digital FTE</h3>
                     <p className="text-sm text-slate-500 mt-2">Let's set up your AI employee in 3 simple steps</p>
-                    
-                    <div className="mt-6 grid grid-cols-3 gap-4">
+
+                    {/* Animated connector-line progress preview */}
+                    <div className="mt-8 flex items-center justify-center max-w-md mx-auto">
                       {[
                         { icon: '🔗', label: 'Connect Store' },
                         { icon: '📱', label: 'Connect Social' },
                         { icon: '🚀', label: 'Ready!' },
-                      ].map((item, i) => (
-                        <div key={i} className="bg-gradient-to-br from-violet-50 to-indigo-50 p-4 rounded-xl border border-violet-100 hover:scale-105 hover:shadow-lg transition-all duration-300 cursor-default">
-                          <span className="text-3xl block">{item.icon}</span>
-                          <p className="text-xs font-bold text-slate-700 mt-1">{item.label}</p>
-                        </div>
+                      ].map((item, i, arr) => (
+                        <React.Fragment key={i}>
+                          <div className="flex flex-col items-center gap-2">
+                            <div
+                              className={`w-14 h-14 rounded-2xl flex items-center justify-center text-2xl border-2 transition-all duration-300 ${
+                                i === 0
+                                  ? 'bg-gradient-to-br from-violet-500 to-indigo-600 border-violet-300 shadow-lg shadow-violet-500/30 animate-pulse scale-110'
+                                  : 'bg-white border-slate-200 text-slate-400'
+                              }`}
+                            >
+                              {item.icon}
+                            </div>
+                            <p className={`text-[10px] font-bold ${i === 0 ? 'text-violet-700' : 'text-slate-400'}`}>{item.label}</p>
+                          </div>
+                          {i < arr.length - 1 && (
+                            <div className="flex-1 h-0.5 bg-slate-200 mx-2 mb-5 relative overflow-hidden rounded-full">
+                              {i === 0 && (
+                                <div className="absolute inset-y-0 left-0 w-1/2 bg-gradient-to-r from-violet-500 to-indigo-400 animate-pulse rounded-full" />
+                              )}
+                            </div>
+                          )}
+                        </React.Fragment>
                       ))}
                     </div>
-                    
+
                     <button
                       onClick={() => setOnboardingStep(3)}
-                      className="w-full mt-6 py-3.5 px-4 rounded-xl bg-gradient-to-r from-violet-600 to-indigo-600 text-white font-bold text-sm hover:shadow-xl hover:scale-[1.02] transition-all duration-300 flex items-center justify-center gap-2"
+                      className="w-full mt-8 py-3.5 px-4 rounded-xl bg-gradient-to-r from-violet-600 to-indigo-600 text-white font-bold text-sm hover:shadow-xl hover:scale-[1.02] transition-all duration-300 flex items-center justify-center gap-2"
                     >
                       Let's Start <ArrowRight className="w-4 h-4" />
                     </button>
@@ -1256,6 +1325,7 @@ export default function AuthPage() {
                         <button
                           onClick={() => {
                             setIsReady(true);
+                            setFlowMode("dashboard");
                             setOnboardingStep(8);
                             showToast("🎉 Setting up your Digital FTE...", "info");
                             setTimeout(() => showToast("⏳ Please wait, building your dashboard...", "info"), 1000);
@@ -1316,51 +1386,51 @@ export default function AuthPage() {
           <div id="landing-view-root" className="w-full max-w-7xl mx-auto flex flex-col gap-20 py-4 animate-fade-in">
             <div id="hero" className="grid grid-cols-1 lg:grid-cols-12 gap-12 items-center py-4">
               <div className="lg:col-span-7 flex flex-col items-start text-left">
-                <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-violet-100 text-violet-700 text-xs font-bold mb-6 tracking-wide uppercase shadow-sm">
+                <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-violet-100 text-violet-700 text-xs font-bold mb-6 tracking-wide uppercase shadow-sm hover:shadow-md hover:bg-violet-200 transition-all animate-pulse">
                   <Sparkles className="w-3.5 h-3.5 text-violet-600 animate-pulse" />
                   <span>AI-POWERED E-COMMERCE EMPLOYEE</span>
                 </div>
-                <h1 className="text-4xl sm:text-5xl lg:text-6xl font-extrabold text-slate-900 tracking-tight leading-[1.1] mb-6">
+                <h1 className="text-4xl sm:text-5xl lg:text-6xl font-extrabold text-slate-900 tracking-tight leading-[1.1] mb-6 animate-fade-in">
                   Your AI Digital FTE, <br />
-                  <span className="bg-gradient-to-r from-violet-600 to-indigo-600 bg-clip-text text-transparent">Working 24/7 for You.</span>
+                  <span className="bg-gradient-to-r from-violet-600 via-indigo-600 to-purple-600 bg-clip-text text-transparent animate-pulse">Working 24/7 for You.</span>
                 </h1>
-                <p className="text-base sm:text-lg text-slate-600 max-w-xl leading-relaxed mb-8">
+                <p className="text-base sm:text-lg text-slate-600 max-w-xl leading-relaxed mb-8 animate-fade-in-delay">
                   One AI Employee that manages your store, engages customers, creates content, and grows your revenue—so you can focus on what matters most.
                 </p>
-                <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-4 mb-8 w-full sm:w-auto">
+                <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-4 mb-8 w-full sm:w-auto animate-fade-in-delay">
                   <button
                     onClick={() => {
                       setAuthMode("signup");
                       setCurrentView("auth");
                       showToast("Let's configure your autonomous container!", "success");
                     }}
-                    className="px-8 py-4 text-sm font-bold text-center rounded-xl bg-gradient-to-r from-violet-600 to-indigo-600 hover:shadow-xl text-white shadow-lg shadow-violet-500/20 hover:shadow-violet-500/35 transform active:scale-[0.98] transition-all cursor-pointer flex items-center justify-center gap-2"
+                    className="px-8 py-4 text-sm font-bold text-center rounded-xl bg-gradient-to-r from-violet-600 to-indigo-600 hover:shadow-xl hover:shadow-violet-500/40 text-white shadow-lg shadow-violet-500/20 transform hover:scale-105 active:scale-[0.98] transition-all cursor-pointer flex items-center justify-center gap-2 duration-300"
                   >
                     <span>Start Free Trial</span>
-                    <ArrowRight className="w-4 h-4" />
+                    <ArrowRight className="w-4 h-4 animate-bounce-right" />
                   </button>
                   <button
                     onClick={() => {
                       showToast("Launching interactive feature demonstration...", "info");
                     }}
-                    className="px-8 py-4 text-sm font-bold text-center rounded-xl bg-white border border-slate-200 hover:border-slate-300 text-slate-700 hover:bg-slate-50 transition-all cursor-pointer flex items-center justify-center gap-2"
+                    className="px-8 py-4 text-sm font-bold text-center rounded-xl bg-white border-2 border-slate-200 hover:border-violet-400 hover:shadow-md hover:scale-105 text-slate-700 hover:bg-slate-50 transition-all cursor-pointer flex items-center justify-center gap-2 duration-300"
                   >
-                    <div className="w-5 h-5 rounded-full bg-slate-100 flex items-center justify-center text-slate-600">
+                    <div className="w-5 h-5 rounded-full bg-gradient-to-r from-violet-100 to-indigo-100 flex items-center justify-center text-slate-600 hover:text-violet-600 transition-colors">
                       <svg className="w-2.5 h-2.5 fill-current ml-0.5" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
                     </div>
                     <span>Watch Demo</span>
                   </button>
                 </div>
-                <div className="flex flex-wrap items-center gap-x-6 gap-y-3 text-slate-500 text-xs font-semibold">
-                  <div className="flex items-center gap-1.5">
+                <div className="flex flex-wrap items-center gap-x-6 gap-y-3 text-slate-500 text-xs font-semibold animate-fade-in-delay-2">
+                  <div className="flex items-center gap-1.5 hover:text-slate-700 transition-colors">
                     <CheckCircle2 className="w-4.5 h-4.5 text-violet-500" />
                     <span>No Credit Card</span>
                   </div>
-                  <div className="flex items-center gap-1.5">
+                  <div className="flex items-center gap-1.5 hover:text-slate-700 transition-colors">
                     <CheckCircle2 className="w-4.5 h-4.5 text-violet-500" />
                     <span>2 Minute Setup</span>
                   </div>
-                  <div className="flex items-center gap-1.5">
+                  <div className="flex items-center gap-1.5 hover:text-slate-700 transition-colors">
                     <CheckCircle2 className="w-4.5 h-4.5 text-violet-500" />
                     <span>Cancel Anytime</span>
                   </div>
@@ -1368,11 +1438,12 @@ export default function AuthPage() {
               </div>
 
               <div className="lg:col-span-5 relative w-full max-w-lg mx-auto flex items-center justify-center min-h-[460px]">
-                <div className="absolute w-[350px] h-[350px] rounded-full bg-violet-300/20 blur-3xl" />
-                <div className="absolute w-[250px] h-[250px] rounded-full bg-cyan-200/20 blur-3xl -bottom-10" />
-                <div className="relative w-[280px] h-[280px] sm:w-[320px] sm:h-[320px] bg-slate-950 rounded-full border border-violet-500/20 flex items-center justify-center p-6 shadow-2xl shadow-violet-500/10 animate-float-delayed">
+                <div className="absolute w-[350px] h-[350px] rounded-full bg-violet-300/20 blur-3xl animate-float" />
+                <div className="absolute w-[250px] h-[250px] rounded-full bg-cyan-200/20 blur-3xl -bottom-10 animate-float-delayed" />
+                <div className="relative w-[280px] h-[280px] sm:w-[320px] sm:h-[320px] bg-gradient-to-br from-slate-950 to-violet-950 rounded-full border border-violet-500/30 flex items-center justify-center p-6 shadow-2xl shadow-violet-500/15 animate-float-delayed hover:shadow-violet-500/25 transition-shadow duration-300">
                   <div className="absolute -inset-1.5 rounded-full border border-violet-500/10 animate-spin-slow" style={{ borderStyle: "dashed" }} />
-                  <div className="w-[180px] h-[180px] sm:w-[220px] sm:h-[220px] relative z-10">
+                  <div className="absolute -inset-8 rounded-full border border-violet-500/5 animate-pulse" />
+                  <div className="w-[180px] h-[180px] sm:w-[220px] sm:h-[220px] relative z-10 hover:scale-110 transition-transform duration-500">
                     <InteractiveRobot isEmailFocused={false} isPasswordFocused={false} isPasswordVisible={false} />
                   </div>
                   <div className="absolute bottom-4 left-1/2 -translate-x-1/2 w-[220px] sm:w-[250px] h-[20px] bg-gradient-to-r from-slate-900 to-slate-800 border-t border-slate-700/50 rounded-b-lg shadow-xl flex items-center justify-center px-10">
@@ -1571,10 +1642,18 @@ export default function AuthPage() {
                   <button
                     type="button"
                     onClick={() => handleOAuth("google")}
-                    className="flex items-center justify-center gap-2.5 py-3 px-4 rounded-xl border border-gray-200 text-gray-700 hover:bg-gray-50 text-xs font-semibold transition-all duration-300 hover:shadow-sm cursor-pointer"
+                    disabled={loading}
+                    className="group flex items-center justify-center gap-2.5 py-3.5 px-4 rounded-xl border-2 border-blue-200 bg-gradient-to-r from-blue-50 to-indigo-50 hover:from-blue-100 hover:to-indigo-100 text-gray-800 text-xs font-bold transition-all duration-300 hover:shadow-lg hover:shadow-blue-200 hover:scale-105 active:scale-95 cursor-pointer disabled:opacity-50"
                   >
-                    <Chrome className="w-4.5 h-4.5 text-[#4285F4] shrink-0" />
-                    <span>Continue with Google</span>
+                    {loading ? (
+                      <div className="w-4 h-4 rounded-full border-2 border-blue-500 border-t-transparent animate-spin" />
+                    ) : (
+                      <>
+                        <Chrome className="w-5 h-5 text-[#4285F4] shrink-0 group-hover:scale-110 transition-transform" />
+                        <span className="flex-1">Continue with Google</span>
+                        <ArrowRight className="w-4 h-4 opacity-0 group-hover:opacity-100 transition-opacity" />
+                      </>
+                    )}
                   </button>
                 </div>
 
@@ -1711,22 +1790,24 @@ export default function AuthPage() {
               </div>
             </div>
 
-            <div id="auth-right-panel" className="lg:col-span-6 bg-[#F5F3FF] p-8 sm:p-12 relative flex flex-col items-center justify-center overflow-hidden border-t lg:border-t-0 lg:border-l border-violet-100/60">
-              <div className="absolute top-1/4 left-1/4 w-[350px] h-[350px] rounded-full bg-violet-300/20 blur-3xl" />
-              <div className="absolute bottom-1/4 right-1/4 w-[250px] h-[250px] rounded-full bg-indigo-300/15 blur-2xl" />
+            <div id="auth-right-panel" className="lg:col-span-6 bg-gradient-to-br from-[#F5F3FF] via-[#F5F3FF] to-violet-50 p-8 sm:p-12 relative flex flex-col items-center justify-center overflow-visible border-t lg:border-t-0 lg:border-l border-violet-100/60">
+              <div className="absolute top-1/4 left-1/4 w-[350px] h-[350px] rounded-full bg-violet-300/20 blur-3xl animate-float" />
+              <div className="absolute bottom-1/4 right-1/4 w-[250px] h-[250px] rounded-full bg-indigo-300/15 blur-2xl animate-float-delayed" />
               <div className="absolute top-12 right-12 w-6 h-6 rounded-full bg-yellow-300/30 blur-md animate-pulse" />
+              <div className="absolute top-1/3 -right-32 w-[500px] h-[500px] rounded-full bg-indigo-200/10 blur-3xl animate-pulse-slow" />
 
-              <div className="absolute top-6 left-6 md:top-12 md:left-12 z-20 max-w-[210px] sm:max-w-[240px] bg-white/80 backdrop-blur-md p-3.5 rounded-2xl border border-violet-200/50 shadow-md animate-float-delayed">
-                <div className="flex items-center gap-1.5 mb-1.5">
-                  <span className="w-2 h-2 rounded-full bg-emerald-500 animate-ping" />
-                  <span className="text-[10px] font-bold text-slate-600 tracking-wider uppercase">FTE-01 ACTIVE</span>
+              <div className="absolute bottom-8 left-6 md:bottom-12 md:left-12 z-20 max-w-[210px] sm:max-w-[240px] bg-white/90 backdrop-blur-lg p-4 rounded-2xl border border-violet-200/60 shadow-lg hover:shadow-xl hover:scale-105 transition-all duration-300 animate-float-delayed">
+                <div className="flex items-center gap-1.5 mb-2">
+                  <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-ping" />
+                  <span className="text-[10px] font-bold text-slate-700 tracking-wider uppercase">FTE-01 ACTIVE</span>
                 </div>
-                <p className="text-[11px] leading-relaxed text-slate-700 font-semibold italic">
+                <p className="text-[11px] leading-relaxed text-slate-800 font-semibold italic">
                   "Working 24/7 to sync catalogs, capture customers, and scale e-commerce revenues."
                 </p>
               </div>
 
-              <div className="relative w-full flex items-center justify-center my-6">
+              <div className="relative w-full flex items-center justify-center my-6 z-30">
+                <div className="absolute w-64 h-64 bg-gradient-to-r from-violet-400/20 to-indigo-400/20 rounded-full blur-2xl animate-pulse-slow" />
                 <InteractiveRobot 
                   isEmailFocused={isEmailFocused} 
                   isPasswordFocused={isPasswordFocused} 
@@ -1735,11 +1816,15 @@ export default function AuthPage() {
                 />
               </div>
 
-              <div className="text-center max-w-sm mt-4 z-20">
-                <h3 className="text-lg font-bold text-violet-950">AI Employee Onboarding</h3>
-                <p className="text-xs text-slate-500 mt-1 leading-relaxed">
-                  Focusing on fields updates the robot's biometric sensors. Hide password to invoke absolute client-side screen encryption.
+              <div className="text-center max-w-sm mt-2 z-20 hover:scale-105 transition-transform duration-300">
+                <h3 className="text-lg font-bold text-violet-950 bg-gradient-to-r from-violet-600 to-indigo-600 bg-clip-text text-transparent">AI Employee Onboarding</h3>
+                <p className="text-xs text-slate-600 mt-1.5 leading-relaxed">
+                  👁️ Focus on fields to interact with robot. 🔒 Hide password for encryption mode.
                 </p>
+              </div>
+
+              <div className="absolute top-6 right-6 z-20 px-4 py-2 bg-emerald-50 border border-emerald-200 rounded-full text-[10px] font-bold text-emerald-700 tracking-wide">
+                ✅ Encrypted end-to-end
               </div>
             </div>
           </div>
@@ -2049,5 +2134,3 @@ export default function AuthPage() {
     </div>
   );
 }
-
-const RAW_SOURCE_CODE = `...`;
