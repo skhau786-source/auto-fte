@@ -1,6 +1,8 @@
 from fastapi import HTTPException, status, Request
 from sqlalchemy import select, or_
 from sqlalchemy.ext.asyncio import AsyncSession
+from datetime import datetime, timedelta
+from sqlalchemy import insert
 
 from app.models import RegisteredStudent, LoginUser, AuthProvider, LoginMethod
 from app.schemas import SignupRequest
@@ -88,11 +90,15 @@ async def get_or_create_google_user(db: AsyncSession, google_token: str) -> Regi
 
 
 async def log_login(db: AsyncSession, user: RegisteredStudent, method: LoginMethod, request: Request) -> None:
-    log_entry = LoginUser(
+   
+    expires_at=datetime.utcnow() + timedelta(hours=24)
+    
+    stmt =insert(LoginUser).values(
         student_id=user.id,
         login_method=method,
         ip_address=request.client.host if request.client else None,
         user_agent=request.headers.get("user-agent"),
+        session_token_expires_at=expires_at
     )
-    db.add(log_entry)
+    await db.execute(stmt)
     await db.commit()
