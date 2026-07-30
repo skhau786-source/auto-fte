@@ -1,34 +1,154 @@
 version: "3.9"
 
 services:
-  api:
-    build: .
-    ports:
-      - "8000:8000"
-    env_file:
-      - .env
-    depends_on:
-      - db
-      - redis
-    restart: unless-stopped
-
-  db:
+  # ─── PostgreSQL Database ───
+  postgres:
     image: postgres:16-alpine
+    container_name: digital-fte-postgres
+    restart: unless-stopped
     environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: digital_fte
+      POSTGRES_USER: ${POSTGRES_USER:-fte_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-fte_password}
+      POSTGRES_DB: ${POSTGRES_DB:-digital_fte}
+      PGDATA: /var/lib/postgresql/data/pgdata
     ports:
       - "5432:5432"
     volumes:
-      - pgdata:/var/lib/postgresql/data
-    restart: unless-stopped
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U fte_user -d digital_fte"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
+  # ─── Redis (Message Broker & Cache) ───
   redis:
     image: redis:7-alpine
+    container_name: digital-fte-redis
+    restart: unless-stopped
     ports:
       - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ─── FastAPI Backend ───
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: digital-fte-backend
     restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      APP_ENV: ${APP_ENV:-development}
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-fte_user}:${POSTGRES_PASSWORD:-fte_password}@postgres:5432/${POSTGRES_DB:-digital_fte}
+      REDIS_URL: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://redis:6379/1
+      CELERY_RESULT_BACKEND: redis://redis:6379/1
+      SECRET_KEY: ${SECRET_KEY:-default-dev-secret-change-in-production}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      CORS_ORIGINS: ${CORS_ORIGINS:-*}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      LOG_FORMAT: ${LOG_FORMAT:-text}
+      WOOCOMMERCE_WEBHOOK_SECRET: ${WOOCOMMERCE_WEBHOOK_SECRET:-}
+    volumes:
+      - ./app:/app/app
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command: >
+      uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+
+  # ─── Celery Worker ───
+  celery_worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: digital-fte-celery-worker
+    restart: unless-stopped
+    environment:
+      APP_ENV: ${APP_ENV:-development}
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-fte_user}:${POSTGRES_PASSWORD:-fte_password}@postgres:5432/${POSTGRES_DB:-digital_fte}
+      REDIS_URL: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://redis:6379/1
+      CELERY_RESULT_BACKEND: redis://redis:6379/1
+      SECRET_KEY: ${SECRET_KEY:-default-dev-secret-change-in-production}
+      WOOCOMMERCE_WEBHOOK_SECRET: ${WOOCOMMERCE_WEBHOOK_SECRET:-}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    volumes:
+      - ./app:/app/app
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command: >
+      celery -A app.woocommerce.tasks.celery_app worker --loglevel=info --concurrency=4
+
+  # ─── Celery Beat (Scheduler) ───
+  celery_beat:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: digital-fte-celery-beat
+    restart: unless-stopped
+    environment:
+      APP_ENV: ${APP_ENV:-development}
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-fte_user}:${POSTGRES_PASSWORD:-fte_password}@postgres:5432/${POSTGRES_DB:-digital_fte}
+      REDIS_URL: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://redis:6379/1
+      CELERY_RESULT_BACKEND: redis://redis:6379/1
+      SECRET_KEY: ${SECRET_KEY:-default-dev-secret-change-in-production}
+      WOOCOMMERCE_WEBHOOK_SECRET: ${WOOCOMMERCE_WEBHOOK_SECRET:-}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    volumes:
+      - ./app:/app/app
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command: >
+      celery -A app.woocommerce.tasks.celery_app beat --loglevel=info
+
+  # ─── Flower (Celery Monitoring) ───
+  flower:
+    image: mher/flower:2.0
+    container_name: digital-fte-flower
+    restart: unless-stopped
+    ports:
+      - "5555:5555"
+    environment:
+      CELERY_BROKER_URL: redis://redis:6379/1
+      FLOWER_PORT: 5555
+    depends_on:
+      - redis
+      - celery_worker
+
+  # ─── Nginx (Reverse Proxy) ───
+  nginx:
+    image: nginx:alpine
+    container_name: digital-fte-nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./nginx/ssl:/etc/nginx/ssl:ro
+    depends_on:
+      - backend
 
 volumes:
-  pgdata:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local

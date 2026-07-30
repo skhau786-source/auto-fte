@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: digital-fte
+  labels:
+    app: digital-fte
+    environment: production

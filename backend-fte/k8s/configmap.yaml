@@ -1,0 +1,19 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: digital-fte-config
+  namespace: digital-fte
+data:
+  APP_NAME: "Digital FTE Inventory"
+  ENV: "production"
+  DEBUG: "false"
+  LOG_LEVEL: "INFO"
+  LOG_FORMAT: "json"
+  SHOPIFY_API_VERSION: "2024-07"
+  SYNC_INTERVAL_HOURS: "6"
+  SYNC_RETRY_MINUTES: "5"
+  LOW_STOCK_ALERT_THRESHOLD: "10"
+  RATE_LIMIT_PER_MINUTE: "60"
+  CORS_ORIGINS: "https://app.example.com"
+  TRUSTED_HOSTS: "localhost,127.0.0.1,*.example.com"
+  REDIS_URL: "redis://redis-service:6379/0"

@@ -15,8 +15,7 @@
     "motion": "^12.23.24",
     "next": "^15.0.0",
     "react": "^19.0.1",
-    "react-dom": "^19.0.1",
-    "typescript": "^5.8.2"
+    "react-dom": "^19.0.1"
   },
   "devDependencies": {
     "@tailwindcss/forms": "^0.5.7",
@@ -25,6 +24,7 @@
     "@types/react-dom": "^19.0.1",
     "autoprefixer": "^10.4.21",
     "postcss": "^8.4.32",
-    "tailwindcss": "^4.1.14"
+    "tailwindcss": "^4.1.14",
+    "typescript": "^7.0.2"
   }
 }

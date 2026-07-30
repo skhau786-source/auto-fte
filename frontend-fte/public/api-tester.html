@@ -1,0 +1,1095 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>API Tester — Digital FTE Backend</title>
+<style>
+  :root {
+    --primary: #7c3aed;
+    --primary-dark: #6d28d9;
+    --primary-light: #ede9fe;
+    --surface: #f8faff;
+    --card: #ffffff;
+    --border: #e2e8f0;
+    --text: #1e293b;
+    --text-muted: #64748b;
+    --success: #10b981;
+    --error: #ef4444;
+    --warning: #f59e0b;
+    --info: #3b82f6;
+    --radius: 12px;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+    background: var(--surface);
+    color: var(--text);
+    min-height: 100vh;
+  }
+
+  /* HEADER */
+  .header {
+    background: linear-gradient(135deg, #5b21b6, #7c3aed, #6366f1);
+    color: white;
+    padding: 16px 24px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    box-shadow: 0 4px 20px rgba(91,33,182,0.3);
+  }
+  .header-left { display: flex; align-items: center; gap: 12px; }
+  .header-logo {
+    width: 36px; height: 36px;
+    background: rgba(255,255,255,0.2);
+    border-radius: 10px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 18px;
+  }
+  .header h1 { font-size: 18px; font-weight: 700; }
+  .header .subtitle { font-size: 11px; opacity: 0.8; }
+  .header-actions { display: flex; gap: 8px; align-items: center; }
+
+  /* SETTINGS BAR */
+  .settings-bar {
+    background: var(--card);
+    border-bottom: 1px solid var(--border);
+    padding: 10px 24px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+  .settings-bar label { font-size: 12px; font-weight: 600; color: var(--text-muted); }
+  .settings-bar input {
+    padding: 6px 12px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    font-size: 13px;
+    font-family: 'SF Mono', 'Fira Code', monospace;
+    min-width: 280px;
+    outline: none;
+    transition: border-color 0.2s;
+  }
+  .settings-bar input:focus { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(124,58,237,0.1); }
+  .settings-bar .token-input { min-width: 320px; }
+  .btn {
+    padding: 6px 16px;
+    border-radius: 6px;
+    font-size: 12px;
+    font-weight: 600;
+    border: none;
+    cursor: pointer;
+    transition: all 0.2s;
+    display: inline-flex; align-items: center; gap: 6px;
+  }
+  .btn-primary { background: var(--primary); color: white; }
+  .btn-primary:hover { background: var(--primary-dark); box-shadow: 0 2px 8px rgba(124,58,237,0.3); }
+  .btn-outline { background: transparent; border: 1px solid var(--border); color: var(--text); }
+  .btn-outline:hover { background: var(--primary-light); border-color: var(--primary); }
+  .btn-sm { padding: 4px 10px; font-size: 11px; }
+  .btn-success { background: var(--success); color: white; }
+  .btn-success:hover { background: #059669; }
+  .btn-danger { background: var(--error); color: white; }
+  .btn-danger:hover { background: #dc2626; }
+  .btn-warning { background: var(--warning); color: white; }
+  .btn-warning:hover { background: #d97706; }
+
+  /* LAYOUT */
+  .layout { display: flex; height: calc(100vh - 105px); }
+  .sidebar {
+    width: 260px;
+    background: var(--card);
+    border-right: 1px solid var(--border);
+    overflow-y: auto;
+    flex-shrink: 0;
+  }
+  .main { flex: 1; overflow-y: auto; padding: 0; }
+
+  /* SIDEBAR NAV */
+  .nav-section { border-bottom: 1px solid var(--border); }
+  .nav-section-title {
+    padding: 10px 16px 6px;
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--text-muted);
+  }
+  .nav-item {
+    display: flex;
+    align-items: center;
+    padding: 6px 16px;
+    cursor: pointer;
+    transition: all 0.15s;
+    font-size: 12px;
+    gap: 8px;
+    border-left: 3px solid transparent;
+  }
+  .nav-item:hover { background: var(--primary-light); }
+  .nav-item.active { background: var(--primary-light); border-left-color: var(--primary); font-weight: 600; color: var(--primary); }
+  .nav-method {
+    font-size: 9px;
+    font-weight: 700;
+    padding: 1px 5px;
+    border-radius: 3px;
+    text-transform: uppercase;
+    min-width: 40px;
+    text-align: center;
+  }
+  .method-get { background: #dbeafe; color: #1d4ed8; }
+  .method-post { background: #d1fae5; color: #065f46; }
+  .method-put { background: #fef3c7; color: #92400e; }
+  .method-delete { background: #fee2e2; color: #991b1b; }
+
+  /* ENDPOINT VIEW */
+  .endpoint-view { padding: 24px; }
+  .endpoint-header { margin-bottom: 20px; }
+  .endpoint-method {
+    display: inline-block;
+    font-size: 11px;
+    font-weight: 700;
+    padding: 3px 8px;
+    border-radius: 4px;
+    text-transform: uppercase;
+    margin-bottom: 6px;
+  }
+  .endpoint-path {
+    font-size: 20px;
+    font-weight: 700;
+    color: var(--text);
+    font-family: 'SF Mono', 'Fira Code', monospace;
+  }
+  .endpoint-desc { font-size: 13px; color: var(--text-muted); margin-top: 4px; }
+
+  /* REQUEST CARD */
+  .request-card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    margin-bottom: 16px;
+    overflow: hidden;
+  }
+  .request-card-header {
+    padding: 10px 16px;
+    font-size: 12px;
+    font-weight: 600;
+    background: #f1f5f9;
+    border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .request-body {
+    padding: 12px 16px;
+  }
+  .request-body textarea {
+    width: 100%;
+    min-height: 120px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 10px;
+    font-family: 'SF Mono', 'Fira Code', monospace;
+    font-size: 12px;
+    line-height: 1.5;
+    resize: vertical;
+    outline: none;
+  }
+  .request-body textarea:focus { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(124,58,237,0.1); }
+  .request-params { padding: 12px 16px; }
+  .param-row {
+    display: flex; align-items: center; gap: 8px; margin-bottom: 6px;
+  }
+  .param-row input {
+    padding: 5px 10px;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    font-size: 12px;
+    outline: none;
+  }
+  .param-row input:focus { border-color: var(--primary); }
+  .param-row label { font-size: 11px; font-weight: 600; color: var(--text-muted); min-width: 80px; }
+  .param-row input[type="text"] { flex: 1; }
+  .param-row input[type="number"] { width: 80px; }
+  .param-row input[type="checkbox"] { width: 16px; height: 16px; }
+
+  /* RESPONSE */
+  .response-card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    overflow: hidden;
+  }
+  .response-header {
+    padding: 10px 16px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    border-bottom: 1px solid var(--border);
+  }
+  .response-status {
+    font-size: 12px;
+    font-weight: 700;
+    padding: 2px 8px;
+    border-radius: 4px;
+  }
+  .response-status-2xx { background: #d1fae5; color: #065f46; }
+  .response-status-4xx { background: #fee2e2; color: #991b1b; }
+  .response-status-5xx { background: #fef3c7; color: #92400e; }
+  .response-time { font-size: 11px; color: var(--text-muted); }
+  .response-body {
+    padding: 16px;
+    max-height: 400px;
+    overflow-y: auto;
+  }
+  .response-body pre {
+    font-family: 'SF Mono', 'Fira Code', monospace;
+    font-size: 12px;
+    line-height: 1.6;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+  .response-error { color: var(--error); }
+  .response-empty { color: var(--text-muted); font-style: italic; padding: 20px; text-align: center; }
+
+  /* LOADING */
+  .loading-spinner {
+    display: inline-block;
+    width: 14px; height: 14px;
+    border: 2px solid rgba(255,255,255,0.3);
+    border-top-color: white;
+    border-radius: 50%;
+    animation: spin 0.6s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* SCROLLBAR */
+  .sidebar::-webkit-scrollbar, .main::-webkit-scrollbar, .response-body::-webkit-scrollbar { width: 6px; }
+  .sidebar::-webkit-scrollbar-track, .main::-webkit-scrollbar-thumb, .response-body::-webkit-scrollbar-thumb { background: transparent; }
+  .sidebar::-webkit-scrollbar-thumb:hover, .main::-webkit-scrollbar-thumb:hover { background: #cbd5e1; border-radius: 3px; }
+
+  /* TOAST */
+  .toast-container {
+    position: fixed;
+    bottom: 20px;
+    right: 20px;
+    z-index: 9999;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .toast {
+    padding: 10px 16px;
+    border-radius: 8px;
+    font-size: 13px;
+    font-weight: 500;
+    color: white;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+    animation: slideIn 0.3s ease-out;
+    max-width: 360px;
+  }
+  .toast-success { background: var(--success); }
+  .toast-error { background: var(--error); }
+  .toast-info { background: var(--info); }
+  @keyframes slideIn { from { transform: translateX(100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+
+  /* RESPONSIVE */
+  @media (max-width: 768px) {
+    .sidebar { display: none; }
+    .settings-bar input { min-width: 150px; }
+    .settings-bar .token-input { min-width: 180px; }
+  }
+
+  /* Form controls */
+  .form-group {
+    margin-bottom: 12px;
+  }
+  .form-group label {
+    display: block;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-muted);
+    margin-bottom: 4px;
+  }
+
+  /* Tab navigation inside endpoint */
+  .tabs { display: flex; gap: 4px; margin-bottom: 12px; border-bottom: 1px solid var(--border); }
+  .tab {
+    padding: 6px 14px;
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    transition: all 0.15s;
+    color: var(--text-muted);
+  }
+  .tab:hover { color: var(--text); }
+  .tab.active { color: var(--primary); border-bottom-color: var(--primary); font-weight: 600; }
+
+  /* Loading skeleton */
+  .skeleton { 
+    display: inline-block;
+    height: 1em;
+    background: linear-gradient(90deg, #e2e8f0 25%, #f1f5f9 50%, #e2e8f0 75%);
+    background-size: 200% 100%;
+    animation: shimmer 1.5s infinite;
+    border-radius: 4px;
+  }
+  @keyframes shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+
+  .badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 999px;
+    font-size: 10px;
+    font-weight: 600;
+  }
+  .badge-required { background: #fee2e2; color: #991b1b; }
+  .badge-optional { background: #f1f5f9; color: #64748b; }
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<header class="header">
+  <div class="header-left">
+    <div class="header-logo">🔧</div>
+    <div>
+      <h1>API Tester</h1>
+      <div class="subtitle">Digital FTE Backend — End-to-End API Testing Tool</div>
+    </div>
+  </div>
+  <div class="header-actions">
+    <span id="statusDot" style="width:8px;height:8px;border-radius:50%;background:#94a3b8;display:inline-block"></span>
+    <span id="statusText" style="font-size:11px;opacity:0.8">Disconnected</span>
+    <button class="btn btn-outline" style="color:white;border-color:rgba(255,255,255,0.3)" onclick="checkHealth()">Test Connection</button>
+  </div>
+</header>
+
+<!-- SETTINGS BAR -->
+<div class="settings-bar">
+  <label>API URL</label>
+  <input type="text" id="apiUrl" value="http://localhost:8000" placeholder="http://localhost:8000" onchange="saveSettings()">
+  <label>Auth Token</label>
+  <input type="text" id="authToken" class="token-input" placeholder="Bearer token (login first)" onchange="saveSettings()">
+  <button class="btn btn-primary" onclick="saveSettings()">Save</button>
+  <button class="btn btn-outline" onclick="clearToken()">Clear Token</button>
+  <button class="btn btn-primary" onclick="showLoginGuide()">🔐 Login Helper</button>
+</div>
+
+<!-- LAYOUT -->
+<div class="layout">
+  <!-- SIDEBAR -->
+  <nav class="sidebar" id="sidebar"></nav>
+
+  <!-- MAIN -->
+  <main class="main" id="mainContent">
+    <div style="display:flex;align-items:center;justify-content:center;height:100%;color:var(--text-muted);flex-direction:column;gap:12px">
+      <div style="font-size:48px">🧪</div>
+      <div style="font-size:18px;font-weight:600;color:var(--text)">Select an API endpoint</div>
+      <div style="font-size:13px;max-width:400px;text-align:center">
+        Choose from the sidebar to test any endpoint. Start with <strong>GET /health</strong> to verify the connection.
+      </div>
+      <div style="margin-top:8px;display:flex;gap:8px">
+        <button class="btn btn-primary" onclick="selectEndpoint('health')">Test Health</button>
+        <button class="btn btn-outline" onclick="selectEndpoint('auth-login')">Try Login</button>
+      </div>
+    </div>
+  </main>
+</div>
+
+<!-- TOASTS -->
+<div class="toast-container" id="toastContainer"></div>
+
+<!-- LOGIN HELPER MODAL -->
+<div id="loginModal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);z-index:9999;display:none;align-items:center;justify-content:center" onclick="closeLoginModal(event)">
+  <div style="background:white;border-radius:16px;padding:32px;max-width:480px;width:90%;box-shadow:0 20px 60px rgba(0,0,0,0.3)" onclick="event.stopPropagation()">
+    <h2 style="font-size:20px;margin-bottom:4px">🔐 Quick Login Helper</h2>
+    <p style="font-size:13px;color:var(--text-muted);margin-bottom:20px">Sign up or log in to get a JWT token for testing protected endpoints.</p>
+    
+    <div class="tabs">
+      <div class="tab active" id="loginTab" onclick="switchLoginTab('login')">Login</div>
+      <div class="tab" id="signupTab" onclick="switchLoginTab('signup')">Sign Up</div>
+    </div>
+
+    <div id="loginForm">
+      <div class="form-group">
+        <label>Email *</label>
+        <input type="email" id="loginEmail" placeholder="user@example.com" style="width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:6px;font-size:13px;outline:none">
+      </div>
+      <div class="form-group">
+        <label>Password *</label>
+        <input type="password" id="loginPassword" placeholder="••••••••" style="width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:6px;font-size:13px;outline:none">
+      </div>
+    </div>
+    <div id="signupForm" style="display:none">
+      <div class="form-group">
+        <label>Username *</label>
+        <input type="text" id="signupUsername" placeholder="myusername" style="width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:6px;font-size:13px;outline:none">
+      </div>
+      <div class="form-group">
+        <label>Email *</label>
+        <input type="email" id="signupEmail" placeholder="user@example.com" style="width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:6px;font-size:13px;outline:none">
+      </div>
+      <div class="form-group">
+        <label>Full Name</label>
+        <input type="text" id="signupName" placeholder="John Doe" style="width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:6px;font-size:13px;outline:none">
+      </div>
+      <div class="form-group">
+        <label>Password * (min 8 chars, 1 uppercase, 1 digit)</label>
+        <input type="password" id="signupPassword" placeholder="••••••••" style="width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:6px;font-size:13px;outline:none">
+      </div>
+    </div>
+
+    <div style="display:flex;gap:8px;margin-top:16px">
+      <button class="btn btn-primary" onclick="executeLogin()" style="padding:8px 20px;font-size:13px">
+        <span id="loginBtnText">Authenticate</span>
+        <span id="loginBtnSpinner" class="loading-spinner" style="display:none"></span>
+      </button>
+      <button class="btn btn-outline" onclick="closeLoginModal()">Cancel</button>
+    </div>
+
+    <div id="loginResult" style="margin-top:12px;padding:10px;border-radius:6px;font-size:12px;display:none"></div>
+  </div>
+</div>
+
+<script>
+// ─── STATE ───
+let state = {
+  apiUrl: localStorage.getItem('apiUrl') || 'http://localhost:8000',
+  authToken: localStorage.getItem('authToken') || '',
+};
+
+// ─── ENDPOINT DEFINITIONS ───
+const ENDPOINTS = [
+  {
+    section: 'Monitoring',
+    items: [
+      { id: 'health', method: 'GET', path: '/health', desc: 'Basic health check', auth: false },
+      { id: 'ready', method: 'GET', path: '/ready', desc: 'Readiness probe (DB + Redis)', auth: false },
+      { id: 'live', method: 'GET', path: '/live', desc: 'Liveness probe', auth: false },
+      { id: 'version', method: 'GET', path: '/version', desc: 'Application version info', auth: false },
+    ],
+  },
+  {
+    section: 'Authentication',
+    items: [
+      { id: 'auth-signup', method: 'POST', path: '/auth/signup', desc: 'Register with email/password', auth: false,
+        body: JSON.stringify({ username: 'testuser', email: 'test@example.com', password: 'Test1234', full_name: 'Test User' }, null, 2) },
+      { id: 'auth-login', method: 'POST', path: '/auth/login', desc: 'Login with email/password', auth: false,
+        body: JSON.stringify({ email: 'test@example.com', password: 'Test1234' }, null, 2) },
+      { id: 'auth-google', method: 'POST', path: '/auth/google', desc: 'Login with Google ID token', auth: false,
+        body: JSON.stringify({ id_token: 'YOUR_GOOGLE_ID_TOKEN' }, null, 2) },
+    ],
+  },
+  {
+    section: 'Inventory',
+    items: [
+      { id: 'inv-list', method: 'GET', path: '/inventory', desc: 'List products (paginated/filtered)', auth: true,
+        params: [
+          { name: 'page', type: 'number', default: '1' },
+          { name: 'page_size', type: 'number', default: '20' },
+          { name: 'search', type: 'text', default: '' },
+          { name: 'status', type: 'text', default: '' },
+          { name: 'sort_by', type: 'text', default: 'updated_at' },
+          { name: 'sort_order', type: 'text', default: 'desc' },
+        ] },
+      { id: 'inv-search', method: 'GET', path: '/inventory/search', desc: 'Advanced search products', auth: true,
+        params: [
+          { name: 'search', type: 'text', default: '' },
+          { name: 'status', type: 'text', default: '' },
+          { name: 'low_stock_only', type: 'checkbox', default: false },
+          { name: 'page', type: 'number', default: '1' },
+          { name: 'page_size', type: 'number', default: '20' },
+        ] },
+      { id: 'inv-get', method: 'GET', path: '/inventory/{product_id}', desc: 'Get single product with variants', auth: true,
+        pathParams: [{ name: 'product_id', placeholder: 'uuid' }] },
+      { id: 'inv-create', method: 'POST', path: '/inventory', desc: 'Create product with variants', auth: true,
+        body: JSON.stringify({
+          title: 'Test Product',
+          description: 'A test product',
+          vendor: 'TestVendor',
+          product_type: 'Physical',
+          status: 'active',
+          variants: [{ title: 'Default', price: 19.99, inventory_quantity: 100, sku: 'TEST-001' }],
+        }, null, 2) },
+      { id: 'inv-update', method: 'PUT', path: '/inventory/{product_id}', desc: 'Update product fields', auth: true,
+        pathParams: [{ name: 'product_id', placeholder: 'uuid' }],
+        body: JSON.stringify({ title: 'Updated Title', vendor: 'NewVendor' }, null, 2) },
+      { id: 'inv-delete', method: 'DELETE', path: '/inventory/{product_id}', desc: 'Delete product', auth: true,
+        pathParams: [{ name: 'product_id', placeholder: 'uuid' }] },
+      { id: 'inv-stock', method: 'POST', path: '/inventory/update-stock', desc: 'Adjust variant stock', auth: true,
+        body: JSON.stringify({ variant_id: 'uuid-here', quantity_change: 10, reason: 'Restock' }, null, 2) },
+      { id: 'inv-lowstock', method: 'GET', path: '/inventory/low-stock', desc: 'Get low stock items', auth: true,
+        params: [
+          { name: 'threshold', type: 'number', default: '10' },
+          { name: 'page', type: 'number', default: '1' },
+          { name: 'page_size', type: 'number', default: '50' },
+        ] },
+      { id: 'inv-history', method: 'GET', path: '/inventory/history', desc: 'Transaction history', auth: true,
+        params: [
+          { name: 'variant_id', type: 'text', default: '' },
+          { name: 'transaction_type', type: 'text', default: '' },
+          { name: 'page', type: 'number', default: '1' },
+          { name: 'page_size', type: 'number', default: '20' },
+        ] },
+    ],
+  },
+  {
+    section: 'Dashboard',
+    items: [
+      { id: 'dashboard', method: 'GET', path: '/dashboard', desc: 'Full inventory dashboard', auth: true },
+    ],
+  },
+  {
+    section: 'Data Export',
+    items: [
+      { id: 'export-products', method: 'GET', path: '/export/products', desc: 'Export products (CSV/JSON/XLSX)', auth: true,
+        params: [
+          { name: 'format', type: 'text', default: 'json' },
+          { name: 'include_variants', type: 'checkbox', default: true },
+        ] },
+      { id: 'export-transactions', method: 'GET', path: '/export/transactions', desc: 'Export transactions', auth: true,
+        params: [
+          { name: 'format', type: 'text', default: 'json' },
+          { name: 'date_from', type: 'text', default: '' },
+          { name: 'date_to', type: 'text', default: '' },
+        ] },
+      { id: 'export-logs', method: 'GET', path: '/export/logs', desc: 'Export audit logs', auth: true,
+        params: [
+          { name: 'format', type: 'text', default: 'json' },
+          { name: 'action', type: 'text', default: '' },
+        ] },
+    ],
+  },
+  {
+    section: 'Admin',
+    items: [
+      { id: 'admin-sync-retry', method: 'POST', path: '/admin/sync/retry', desc: 'Retry failed Shopify syncs', auth: true },
+      { id: 'admin-rebuild', method: 'POST', path: '/admin/inventory/rebuild', desc: 'Force full Shopify re-sync', auth: true },
+      { id: 'admin-webhooks', method: 'POST', path: '/admin/webhooks/re-register', desc: 'Re-register Shopify webhooks', auth: true },
+      { id: 'admin-cache-flush', method: 'POST', path: '/admin/cache/flush', desc: 'Flush Redis cache', auth: true },
+      { id: 'admin-queue', method: 'GET', path: '/admin/queue/status', desc: 'View retry queue status', auth: true },
+      { id: 'admin-dead-letters', method: 'GET', path: '/admin/queue/dead-letters', desc: 'View dead letter queue', auth: true },
+      { id: 'admin-stats', method: 'GET', path: '/admin/stats', desc: 'System statistics', auth: true },
+    ],
+  },
+  {
+    section: 'Shopify Webhooks',
+    items: [
+      { id: 'wh-inventory', method: 'POST', path: '/webhooks/inventory-levels-update', desc: 'Inventory level update (HMAC)', auth: false,
+        body: JSON.stringify({ inventory_item_id: 808950810, location_id: 905684977, available: 25 }, null, 2) },
+      { id: 'wh-products', method: 'POST', path: '/webhooks/products-update', desc: 'Product update (HMAC)', auth: false,
+        body: JSON.stringify({ id: 123456, title: 'Updated Product', variants: [] }, null, 2) },
+      { id: 'wh-uninstall', method: 'POST', path: '/webhooks/app-uninstalled', desc: 'App uninstall (HMAC)', auth: false,
+        body: JSON.stringify({ shop_id: 123456, shop_domain: 'my-store.myshopify.com' }, null, 2) },
+    ],
+  },
+];
+
+// ─── ROUTING ───
+function getEndpoint(id) {
+  for (const section of ENDPOINTS) {
+    for (const item of section.items) {
+      if (item.id === id) return item;
+    }
+  }
+  return null;
+}
+
+let activeEndpoint = null;
+
+// ─── INIT ───
+document.addEventListener('DOMContentLoaded', () => {
+  renderSidebar();
+  document.getElementById('apiUrl').value = state.apiUrl;
+  document.getElementById('authToken').value = state.authToken;
+  updateConnectionStatus(false);
+});
+
+function saveSettings() {
+  state.apiUrl = document.getElementById('apiUrl').value.replace(/\/+$/, '');
+  state.authToken = document.getElementById('authToken').value;
+  localStorage.setItem('apiUrl', state.apiUrl);
+  localStorage.setItem('authToken', state.authToken);
+  if (state.authToken) {
+    updateConnectionStatus(true);
+    showToast('Settings saved', 'success');
+  } else {
+    updateConnectionStatus(false);
+    showToast('Settings saved (no auth token)', 'info');
+  }
+  // Re-render current endpoint
+  if (activeEndpoint) selectEndpoint(activeEndpoint.id);
+}
+
+function clearToken() {
+  state.authToken = '';
+  document.getElementById('authToken').value = '';
+  localStorage.removeItem('authToken');
+  updateConnectionStatus(false);
+  showToast('Auth token cleared', 'info');
+  if (activeEndpoint) selectEndpoint(activeEndpoint.id);
+}
+
+function updateConnectionStatus(connected) {
+  const dot = document.getElementById('statusDot');
+  const text = document.getElementById('statusText');
+  if (connected) {
+    dot.style.background = '#10b981';
+    text.textContent = 'Authenticated';
+  } else {
+    dot.style.background = '#94a3b8';
+    text.textContent = 'No Token';
+  }
+}
+
+// ─── SIDEBAR ───
+function renderSidebar() {
+  const sidebar = document.getElementById('sidebar');
+  let html = '';
+  for (const section of ENDPOINTS) {
+    html += `<div class="nav-section">
+      <div class="nav-section-title">${section.section}</div>`;
+    for (const item of section.items) {
+      const isActive = activeEndpoint && activeEndpoint.id === item.id;
+      html += `<div class="nav-item ${isActive ? 'active' : ''}" onclick="selectEndpoint('${item.id}')" data-id="${item.id}">
+        <span class="nav-method method-${item.method.toLowerCase()}">${item.method}</span>
+        <span style="font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${item.path}</span>
+      </div>`;
+    }
+    html += '</div>';
+  }
+  sidebar.innerHTML = html;
+}
+
+function selectEndpoint(id) {
+  const endpoint = getEndpoint(id);
+  if (!endpoint) return;
+  activeEndpoint = endpoint;
+  renderSidebar();
+  renderEndpoint(endpoint);
+}
+
+// ─── RENDER ENDPOINT ───
+function renderEndpoint(endpoint) {
+  const main = document.getElementById('mainContent');
+  
+  const methodClass = endpoint.method.toLowerCase();
+  const colors = { get: '#1d4ed8', post: '#065f46', put: '#92400e', delete: '#991b1b' };
+  const color = colors[methodClass] || '#64748b';
+  
+  let html = `<div class="endpoint-view">
+    <div class="endpoint-header">
+      <span class="endpoint-method method-${methodClass}" style="background:${color}15;color:${color}">${endpoint.method}</span>
+      <div class="endpoint-path">${endpoint.path}</div>
+      <div class="endpoint-desc">${endpoint.desc || ''}</div>
+      ${endpoint.auth ? '<div style="margin-top:4px"><span class="badge badge-required">🔒 Requires Auth</span></div>' : '<div style="margin-top:4px"><span class="badge badge-optional">🔓 Public</span></div>'}
+    </div>`;
+
+  // Path params
+  if (endpoint.pathParams && endpoint.pathParams.length > 0) {
+    html += `<div class="request-card">
+      <div class="request-card-header">📌 Path Parameters</div>
+      <div class="request-params">`;
+    for (const p of endpoint.pathParams) {
+      html += `<div class="param-row">
+        <label>${p.name}</label>
+        <input type="text" id="pp-${p.name}" placeholder="${p.placeholder || 'value'}" style="flex:1">
+      </div>`;
+    }
+    html += `</div></div>`;
+  }
+
+  // Query params
+  if (endpoint.params && endpoint.params.length > 0) {
+    html += `<div class="request-card">
+      <div class="request-card-header">🔍 Query Parameters</div>
+      <div class="request-params">`;
+    for (const p of endpoint.params) {
+      if (p.type === 'checkbox') {
+        html += `<div class="param-row">
+          <input type="checkbox" id="qp-${p.name}" ${p.default ? 'checked' : ''}>
+          <label for="qp-${p.name}" style="min-width:auto;cursor:pointer">${p.name}</label>
+        </div>`;
+      } else {
+        html += `<div class="param-row">
+          <label>${p.name}</label>
+          <input type="${p.type}" id="qp-${p.name}" value="${p.default || ''}" placeholder="${p.name}">
+        </div>`;
+      }
+    }
+    html += `</div></div>`;
+  }
+
+  // Request body
+  if (['POST', 'PUT', 'PATCH'].includes(endpoint.method)) {
+    html += `<div class="request-card">
+      <div class="request-card-header">
+        <span>📝 Request Body</span>
+        <button class="btn btn-sm btn-outline" onclick="formatBody('reqBody')">Format JSON</button>
+      </div>
+      <div class="request-body">
+        <textarea id="reqBody" placeholder="Request body (JSON)">${endpoint.body || ''}</textarea>
+      </div>
+    </div>`;
+  }
+
+  // Send button
+  const canSend = !endpoint.auth || state.authToken;
+  html += `<div style="display:flex;gap:8px;margin-bottom:16px">
+    <button class="btn btn-primary" onclick="sendRequest()" ${canSend ? '' : 'disabled'} style="${canSend ? '' : 'opacity:0.5;cursor:not-allowed'};padding:10px 24px;font-size:13px">
+      <span id="sendBtnText">▶ Send ${endpoint.method} Request</span>
+      <span id="sendBtnSpinner" class="loading-spinner" style="display:none"></span>
+    </button>
+    <button class="btn btn-outline" onclick="resetEndpoint()">Reset</button>
+    ${endpoint.auth && !state.authToken ? '<span style="font-size:11px;color:var(--error);display:flex;align-items:center">⚠️ Set auth token above or use Login Helper</span>' : ''}
+  </div>`;
+
+  // Response
+  html += `<div class="response-card">
+    <div class="response-header">
+      <div style="display:flex;align-items:center;gap:8px">
+        <span style="font-size:12px;font-weight:600">Response</span>
+        <span id="responseStatus" class="response-status" style="display:none"></span>
+      </div>
+      <span id="responseTime" class="response-time"></span>
+    </div>
+    <div class="response-body" id="responseBody">
+      <div class="response-empty">Send a request to see the response here</div>
+    </div>
+  </div>`;
+
+  html += `</div>`;
+  main.innerHTML = html;
+}
+
+// ─── SEND REQUEST ───
+async function sendRequest() {
+  const ep = activeEndpoint;
+  if (!ep) return;
+
+  // Build URL
+  let url = state.apiUrl + ep.path;
+
+  // Replace path params
+  if (ep.pathParams) {
+    for (const p of ep.pathParams) {
+      const val = document.getElementById(`pp-${p.name}`)?.value;
+      if (val) url = url.replace(`{${p.name}}`, val);
+    }
+  }
+
+  // Add query params
+  if (ep.params) {
+    const qp = new URLSearchParams();
+    for (const p of ep.params) {
+      const el = document.getElementById(`qp-${p.name}`);
+      if (el) {
+        if (p.type === 'checkbox') {
+          if (el.checked) qp.set(p.name, 'true');
+        } else if (el.value) {
+          qp.set(p.name, el.value);
+        }
+      }
+    }
+    const qs = qp.toString();
+    if (qs) url += '?' + qs;
+  }
+
+  // Build headers
+  const headers = { 'Content-Type': 'application/json' };
+  if (ep.auth && state.authToken) {
+    headers['Authorization'] = `Bearer ${state.authToken}`;
+  }
+
+  // Build body
+  let body = undefined;
+  if (['POST', 'PUT', 'PATCH'].includes(ep.method)) {
+    const bodyEl = document.getElementById('reqBody');
+    if (bodyEl && bodyEl.value.trim()) {
+      try {
+        // Validate JSON before sending
+        JSON.parse(bodyEl.value);
+        body = bodyEl.value;
+      } catch (e) {
+        showToast('Invalid JSON in request body', 'error');
+        return;
+      }
+    }
+  }
+
+  // UI: loading state
+  document.getElementById('sendBtnText').textContent = 'Sending...';
+  document.getElementById('sendBtnSpinner').style.display = 'inline-block';
+  document.getElementById('responseBody').innerHTML = '<div style="text-align:center;padding:20px"><div style="display:inline-block;width:20px;height:20px;border:2px solid #e2e8f0;border-top-color:var(--primary);border-radius:50%;animation:spin 0.6s linear infinite"></div><div style="margin-top:8px;font-size:12px;color:var(--text-muted)">Sending request...</div></div>';
+  document.getElementById('responseStatus').style.display = 'none';
+  document.getElementById('responseTime').textContent = '';
+
+  const startTime = performance.now();
+
+  try {
+    const response = await fetch(url, {
+      method: ep.method,
+      headers,
+      body,
+    });
+
+    const elapsed = Math.round(performance.now() - startTime);
+    const contentType = response.headers.get('content-type') || '';
+
+    let responseData;
+    let isJson = false;
+
+    if (contentType.includes('application/json')) {
+      responseData = await response.json();
+      isJson = true;
+    } else if (contentType.includes('text/')) {
+      responseData = await response.text();
+    } else {
+      // Try JSON anyway
+      try {
+        responseData = await response.clone().json();
+        isJson = true;
+      } catch {
+        responseData = await response.text();
+      }
+    }
+
+    // Show response
+    const statusCode = response.status;
+    const statusClass = statusCode < 300 ? 'response-status-2xx' : statusCode < 500 ? 'response-status-4xx' : 'response-status-5xx';
+
+    document.getElementById('responseStatus').textContent = `${statusCode} ${response.statusText}`;
+    document.getElementById('responseStatus').className = `response-status ${statusClass}`;
+    document.getElementById('responseStatus').style.display = 'inline-block';
+    document.getElementById('responseTime').textContent = `${elapsed}ms`;
+
+    const bodyEl = document.getElementById('responseBody');
+    if (isJson) {
+      const formatted = typeof responseData === 'string' ? responseData : JSON.stringify(responseData, null, 2);
+      bodyEl.innerHTML = `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+        <span style="font-size:11px;color:var(--text-muted)">Response body (${new Blob([formatted]).size} bytes)</span>
+        <button class="btn btn-sm btn-outline" onclick="copyResponse()">📋 Copy</button>
+      </div>
+      <pre>${escapeHtml(formatted)}</pre>`;
+    } else {
+      bodyEl.innerHTML = `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+        <span style="font-size:11px;color:var(--text-muted)">Response (non-JSON)</span>
+        <button class="btn btn-sm btn-outline" onclick="copyResponse()">📋 Copy</button>
+      </div>
+      <pre>${escapeHtml(String(responseData).substring(0, 5000))}</pre>`;
+    }
+
+    showToast(`${ep.method} ${ep.path} → ${statusCode} (${elapsed}ms)`, statusCode < 400 ? 'success' : 'error');
+
+  } catch (err) {
+    const elapsed = Math.round(performance.now() - startTime);
+    document.getElementById('responseStatus').textContent = 'NETWORK ERROR';
+    document.getElementById('responseStatus').className = 'response-status response-status-5xx';
+    document.getElementById('responseStatus').style.display = 'inline-block';
+    document.getElementById('responseTime').textContent = `${elapsed}ms`;
+    document.getElementById('responseBody').innerHTML = `
+      <div class="response-error">
+        <strong>❌ Connection Error</strong>
+        <pre style="margin-top:8px">${escapeHtml(err.message)}</pre>
+        <div style="margin-top:12px;font-size:12px;color:var(--text-muted)">
+          Make sure the API server is running at <strong>${state.apiUrl}</strong>
+        </div>
+      </div>`;
+    showToast(`Network error: ${err.message}`, 'error');
+  }
+
+  document.getElementById('sendBtnText').textContent = `▶ Send ${ep.method} Request`;
+  document.getElementById('sendBtnSpinner').style.display = 'none';
+}
+
+// ─── HELPERS ───
+function formatBody(id) {
+  const el = document.getElementById(id);
+  if (!el || !el.value.trim()) return;
+  try {
+    el.value = JSON.stringify(JSON.parse(el.value), null, 2);
+  } catch (e) {
+    showToast('Invalid JSON, cannot format', 'error');
+  }
+}
+
+function resetEndpoint() {
+  if (activeEndpoint) renderEndpoint(activeEndpoint);
+}
+
+function copyResponse() {
+  const pre = document.querySelector('#responseBody pre');
+  if (!pre) return;
+  navigator.clipboard.writeText(pre.textContent).then(() => {
+    showToast('Copied to clipboard', 'success');
+  }).catch(() => {
+    showToast('Failed to copy', 'error');
+  });
+}
+
+function escapeHtml(str) {
+  const div = document.createElement('div');
+  div.textContent = str;
+  return div.innerHTML;
+}
+
+function showToast(message, type = 'info') {
+  const container = document.getElementById('toastContainer');
+  const toast = document.createElement('div');
+  toast.className = `toast toast-${type}`;
+  toast.textContent = message;
+  container.appendChild(toast);
+  setTimeout(() => {
+    toast.style.opacity = '0';
+    toast.style.transform = 'translateX(100%)';
+    setTimeout(() => toast.remove(), 300);
+  }, 3000);
+}
+
+// ─── HEALTH CHECK ───
+async function checkHealth() {
+  try {
+    const res = await fetch(state.apiUrl + '/health');
+    const data = await res.json();
+    const dot = document.getElementById('statusDot');
+    dot.style.background = '#10b981';
+    document.getElementById('statusText').textContent = `Connected — ${data.status || 'ok'}`;
+    showToast(`API is online: ${data.status}`, 'success');
+  } catch (err) {
+    const dot = document.getElementById('statusDot');
+    dot.style.background = '#ef4444';
+    document.getElementById('statusText').textContent = 'Connection Failed';
+    showToast(`Cannot connect to ${state.apiUrl}`, 'error');
+  }
+}
+
+// ─── LOGIN HELPER ───
+let loginMode = 'login';
+
+function showLoginGuide() {
+  document.getElementById('loginModal').style.display = 'flex';
+  loginMode = 'login';
+  switchLoginTab('login');
+}
+
+function closeLoginModal(e) {
+  // only close if clicking the backdrop
+  if (!e || e.target === document.getElementById('loginModal')) {
+    document.getElementById('loginModal').style.display = 'none';
+  }
+}
+
+function switchLoginTab(mode) {
+  loginMode = mode;
+  document.getElementById('loginTab').className = mode === 'login' ? 'tab active' : 'tab';
+  document.getElementById('signupTab').className = mode === 'signup' ? 'tab active' : 'tab';
+  document.getElementById('loginForm').style.display = mode === 'login' ? 'block' : 'none';
+  document.getElementById('signupForm').style.display = mode === 'signup' ? 'block' : 'none';
+  document.getElementById('loginResult').style.display = 'none';
+}
+
+async function executeLogin() {
+  const btnText = document.getElementById('loginBtnText');
+  const btnSpinner = document.getElementById('loginBtnSpinner');
+  const resultDiv = document.getElementById('loginResult');
+  
+  btnText.textContent = 'Authenticating...';
+  btnSpinner.style.display = 'inline-block';
+  resultDiv.style.display = 'none';
+
+  let url, body;
+
+  if (loginMode === 'login') {
+    const email = document.getElementById('loginEmail').value;
+    const password = document.getElementById('loginPassword').value;
+    if (!email || !password) {
+      showToast('Please fill in email and password', 'error');
+      btnText.textContent = 'Authenticate';
+      btnSpinner.style.display = 'none';
+      return;
+    }
+    url = state.apiUrl + '/auth/login';
+    body = JSON.stringify({ email, password });
+  } else {
+    const username = document.getElementById('signupUsername').value;
+    const email = document.getElementById('signupEmail').value;
+    const password = document.getElementById('signupPassword').value;
+    const fullName = document.getElementById('signupName').value;
+    if (!username || !email || !password) {
+      showToast('Please fill in username, email, and password', 'error');
+      btnText.textContent = 'Authenticate';
+      btnSpinner.style.display = 'none';
+      return;
+    }
+    url = state.apiUrl + '/auth/signup';
+    body = JSON.stringify({ username, email, password, full_name: fullName || undefined });
+  }
+
+  try {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body,
+    });
+    const data = await res.json();
+
+    resultDiv.style.display = 'block';
+    resultDiv.innerHTML = `<pre style="font-size:11px;white-space:pre-wrap">${escapeHtml(JSON.stringify(data, null, 2))}</pre>`;
+
+    // Note: the current auth API doesn't return a JWT token in the response
+    // It returns { message, user }. Check the API docs.
+    // If the API returns a token field, we capture it here
+    if (data.access_token || data.token) {
+      const token = data.access_token || data.token;
+      state.authToken = token;
+      document.getElementById('authToken').value = token;
+      localStorage.setItem('authToken', token);
+      updateConnectionStatus(true);
+      resultDiv.style.background = '#d1fae5';
+      resultDiv.style.color = '#065f46';
+      resultDiv.innerHTML += '<div style="margin-top:8px;font-weight:600">✅ Token captured! You can now test protected endpoints.</div>';
+    } else {
+      // The API doesn't return a token from signup/login — just user data
+      // This is a bug/design choice in the backend. We log it for the user.
+      resultDiv.style.background = '#fef3c7';
+      resultDiv.style.color = '#92400e';
+      resultDiv.innerHTML += '<div style="margin-top:8px;font-weight:600">⚠️ The API did not return a JWT token in this response. Check the backend response structure. You may need to manually set the token.</div>';
+    }
+
+    if (res.ok) {
+      showToast(`${loginMode === 'login' ? 'Login' : 'Signup'} successful`, 'success');
+    } else {
+      showToast(`${loginMode === 'login' ? 'Login' : 'Signup'} failed: ${data.detail || 'Unknown error'}`, 'error');
+    }
+  } catch (err) {
+    resultDiv.style.display = 'block';
+    resultDiv.style.background = '#fee2e2';
+    resultDiv.style.color = '#991b1b';
+    resultDiv.innerHTML = `❌ Error: ${escapeHtml(err.message)}`;
+    showToast(`Connection error: ${err.message}`, 'error');
+  }
+
+  btnText.textContent = 'Authenticate';
+  btnSpinner.style.display = 'none';
+}
+
+// ─── KEYBOARD SHORTCUT ───
+document.addEventListener('keydown', (e) => {
+  if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+    sendRequest();
+  }
+  if (e.key === 'Escape') {
+    closeLoginModal({ target: document.getElementById('loginModal') });
+  }
+});
+
+console.log('🔧 API Tester loaded');
+console.log(`📡 API URL: ${state.apiUrl}`);
+console.log(`🔐 Auth: ${state.authToken ? 'Token set' : 'No token'}`);
+console.log('⌨️  Ctrl+Enter to send request');
+</script>
+</body>
+</html>
