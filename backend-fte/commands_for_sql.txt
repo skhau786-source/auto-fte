@@ -5,3 +5,7 @@ for listing all tables:
 
 SELECT * FROM registered_students;
 SELECT * FROM login_users;
+
+
+alembic revision --autogenerate -m "store image as file path instead of base64"
+alembic upgrade head

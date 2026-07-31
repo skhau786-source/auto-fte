@@ -14,3 +14,4 @@ httpx
 redis
 python-dotenv
 requests
+huggingface_hub==0.26.2
