@@ -5,8 +5,11 @@ from fastapi import HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+import uuid as uuid_lib
+from datetime import datetime, timezone
+from sqlalchemy import select
+from app.models import GeneratedPost, InstagramAccount
 from app.config import settings
-from app.models import InstagramAccount
 
 IG_OAUTH_AUTHORIZE_URL = "https://www.instagram.com/oauth/authorize"
 IG_TOKEN_URL = "https://api.instagram.com/oauth/access_token"
@@ -109,3 +112,72 @@ async def save_instagram_account(
     await db.commit()
     await db.refresh(account)
     return account
+
+
+
+
+async def create_media_container(ig_user_id: str, access_token: str, image_url: str, caption: str) -> str:
+    """Step 1 of publishing: upload image + caption, get back a creation_id (container)."""
+    async with httpx.AsyncClient(timeout=60) as client:
+        resp = await client.post(
+            f"{IG_GRAPH_URL}/v21.0/{ig_user_id}/media",
+            data={
+                "image_url": image_url,
+                "caption": caption,
+                "access_token": access_token,
+            },
+        )
+    data = resp.json()
+    if "id" not in data:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Failed to create media container: {data}")
+    return data["id"]
+
+
+async def publish_media_container(ig_user_id: str, access_token: str, creation_id: str) -> str:
+    """Step 2 of publishing: actually publish the container to the Instagram feed."""
+    async with httpx.AsyncClient(timeout=60) as client:
+        resp = await client.post(
+            f"{IG_GRAPH_URL}/v21.0/{ig_user_id}/media_publish",
+            data={
+                "creation_id": creation_id,
+                "access_token": access_token,
+            },
+        )
+    data = resp.json()
+    if "id" not in data:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Failed to publish media: {data}")
+    return data["id"]
+
+
+async def publish_post(db: AsyncSession, post_id: uuid_lib.UUID, student_id: uuid_lib.UUID, public_image_url: str) -> str:
+    """
+    Full publish flow: fetch the generated post + connected IG account,
+    create the media container, publish it, update the post record.
+    """
+    # 1. Get the connected Instagram account for this student
+    ig_result = await db.execute(select(InstagramAccount).where(InstagramAccount.student_id == student_id))
+    ig_account = ig_result.scalar_one_or_none()
+    if not ig_account:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No Instagram account connected for this user")
+
+    # 2. Get the generated post
+    post_result = await db.execute(select(GeneratedPost).where(GeneratedPost.id == post_id))
+    post = post_result.scalar_one_or_none()
+    if not post:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Generated post not found")
+    if not post.image_path or not post.caption:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Post is missing image or caption")
+
+    # 3. Create + publish the media container
+    creation_id = await create_media_container(
+        ig_account.ig_user_id, ig_account.access_token, public_image_url, post.caption
+    )
+    media_id = await publish_media_container(ig_account.ig_user_id, ig_account.access_token, creation_id)
+
+    # 4. Update the post record
+    post.status = "published"
+    post.instagram_media_id = media_id
+    post.published_at = datetime.now(timezone.utc)
+    await db.commit()
+
+    return media_id

@@ -17,3 +17,14 @@ class InstagramAccountOut(BaseModel):
 class InstagramConnectResponse(BaseModel):
     message: str
     account: InstagramAccountOut
+
+
+
+class PublishPostRequest(BaseModel):
+    post_id: uuid.UUID  # the GeneratedPost.id to publish
+
+
+class PublishPostResponse(BaseModel):
+    message: str
+    instagram_media_id: str
+    post_id: uuid.UUID

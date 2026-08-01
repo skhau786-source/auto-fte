@@ -74,7 +74,6 @@ class LoginUser(Base):
 
 
 class GeneratedPost(Base):
-    """Stores each AI-generated caption + image, ready to publish."""
     __tablename__ = "generated_posts"
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -85,13 +84,14 @@ class GeneratedPost(Base):
 
     prompt: Mapped[str] = mapped_column(Text, nullable=False)
     caption: Mapped[str | None] = mapped_column(Text, nullable=True)
-    image_path: Mapped[str | None] = mapped_column(String(500), nullable=True)  # relative path, e.g. static/generated_images/xyz.jpg
+    image_path: Mapped[str | None] = mapped_column(String(500), nullable=True)
     image_model: Mapped[str | None] = mapped_column(String(100), nullable=True)
 
     status: Mapped[str] = mapped_column(String(20), default="draft", nullable=False)
+    instagram_media_id: Mapped[str | None] = mapped_column(String(100), nullable=True)  # NEW
+    published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)  # NEW
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-    
     
     
 # --- agar Text import nahi hai to top pe add karo ---
