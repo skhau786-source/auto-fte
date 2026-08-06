@@ -1,17 +1,19 @@
 """
 Unified Dashboard Service — Phase 7.
 
-Orchestrates all 6 completed phases' services to produce a single
+Orchestrates all active phases' services to produce a single
 comprehensive dashboard response. Each phase's service is called
 independently (parallel-safe) and aggregated into the unified response.
 
 Phases:
 - Phase 1: InventoryService.get_dashboard()
-- Phase 2: WarehouseDashboardService.get_summary()
 - Phase 3: ReservationService.get_dashboard_stats()
 - Phase 4: AllocationService.get_dashboard_stats()
 - Phase 5: OrderIntegrationService.get_dashboard_stats()
 - Phase 6: InventoryAggregationEngine.get_dashboard()
+
+Store-centric: the former Phase 2 workspace summary widget was removed
+in the SaaS platform pivot.
 """
 
 from __future__ import annotations
@@ -19,7 +21,6 @@ from __future__ import annotations
 import uuid
 import logging
 from datetime import datetime, timezone
-from decimal import Decimal
 from typing import Optional
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -28,18 +29,15 @@ from app.models import Store
 from app.dashboard.unified_schema import (
     UnifiedDashboardResponse,
     InventorySummaryWidget,
-    WarehouseSummaryWidget,
     ReservationSummaryWidget,
     AllocationSummaryWidget,
     OrderIntegrationSummaryWidget,
     AggregationSummaryWidget,
-    WarehouseUtilizationItem,
 )
 from app.dashboard.dashboard_service import DashboardService
-from app.warehouse.aggregation_service import WarehouseDashboardService
-from app.warehouse.reservation_service import ReservationService
-from app.warehouse.allocation_service import AllocationService
-from app.warehouse.aggregation_engine import InventoryAggregationEngine
+from app.inventory.reservation_service import ReservationService
+from app.inventory.allocation_service import AllocationService
+from app.inventory.aggregation_engine import InventoryAggregationEngine
 from sqlalchemy import select
 
 logger = logging.getLogger(__name__)
@@ -79,12 +77,6 @@ class UnifiedDashboardService:
         except Exception:
             inv_summary = InventorySummaryWidget()
 
-        # ── Phase 2: Warehouse Summary ──
-        try:
-            wh_summary = await self._get_warehouse_summary()
-        except Exception:
-            wh_summary = WarehouseSummaryWidget()
-
         # ── Phase 3: Reservation Summary ──
         try:
             res_summary = await self._get_reservation_summary()
@@ -113,7 +105,6 @@ class UnifiedDashboardService:
             store_id=str(self.store.id),
             generated_at=datetime.now(timezone.utc),
             inventory=inv_summary,
-            warehouse=wh_summary,
             reservation=res_summary,
             allocation=alloc_summary,
             order_integration=order_summary,
@@ -143,37 +134,6 @@ class UnifiedDashboardService:
         except Exception as exc:
             self.logger.warning("Inventory summary failed: %s", exc)
             return InventorySummaryWidget()
-
-    # ═══════════════════════════════════════════════════════════════
-    # Phase 2 — Warehouse Summary
-    # ═══════════════════════════════════════════════════════════════
-
-    async def _get_warehouse_summary(self) -> WarehouseSummaryWidget:
-        """Get warehouse metrics from WarehouseDashboardService."""
-        try:
-            svc = WarehouseDashboardService(db=self.db, store=self.store)
-            summary = await svc.get_summary()
-
-            # Get default warehouse name
-            from app.warehouse.service import WarehouseService
-            wh_svc = WarehouseService(db=self.db, store=self.store)
-            default_wh = await wh_svc.get_default_warehouse()
-            default_name = default_wh.name if default_wh else None
-
-            return WarehouseSummaryWidget(
-                total_warehouses=summary.get("total_warehouses", 0),
-                active_warehouses=summary.get("active_warehouses", 0),
-                total_capacity=summary.get("total_capacity", 0),
-                total_used_capacity=summary.get("total_used_capacity", 0),
-                capacity_usage_percentage=summary.get("capacity_usage_percentage", 0.0),
-                pending_transfers=summary.get("pending_transfers", 0),
-                in_transit_transfers=summary.get("in_transit_transfers", 0),
-                low_stock_warehouse_items=summary.get("low_stock_items", 0),
-                default_warehouse_name=default_name,
-            )
-        except Exception as exc:
-            self.logger.warning("Warehouse summary failed: %s", exc)
-            return WarehouseSummaryWidget()
 
     # ═══════════════════════════════════════════════════════════════
     # Phase 3 — Reservation Summary
@@ -206,37 +166,12 @@ class UnifiedDashboardService:
             svc = AllocationService(db=self.db, store=self.store, user_id=self.user_id)
             stats = await svc.get_dashboard_stats()
 
-            # Build warehouse utilization items
-            utilization = []
-            # The dashboard stats includes per-warehouse capacities
-            # We enrich with capacity data from the capacity service if available
-            try:
-                from app.warehouse.service import CapacityService
-                cap_svc = CapacityService(db=self.db, store=self.store)
-                caps = await cap_svc.get_all_capacities()
-                for cap in caps:
-                    utilization.append(WarehouseUtilizationItem(
-                        warehouse_id=str(cap.get("warehouse_id", "")),
-                        warehouse_name=cap.get("warehouse_name", "Unknown"),
-                        capacity=cap.get("capacity"),
-                        current_usage=cap.get("current_usage", 0),
-                        usage_percentage=cap.get("usage_percentage"),
-                        status=cap.get("status", "normal"),
-                    ))
-            except Exception:
-                pass
-
             return AllocationSummaryWidget(
-                allocation_strategy=stats.get("allocation_strategy", "default_warehouse"),
-                multi_warehouse_enabled=stats.get("multi_warehouse_enabled", False),
-                total_warehouses=stats.get("total_warehouses", 0),
-                active_warehouses=stats.get("active_warehouses", 0),
-                total_capacity=stats.get("total_capacity", 0),
-                total_usage=stats.get("total_usage", 0),
-                utilization_percentage=stats.get("utilization_percentage", 0.0),
-                high_utilization_warehouses=stats.get("high_utilization_warehouses", 0),
-                top_fulfillment_warehouse_name=stats.get("top_fulfillment_warehouse_name"),
-                warehouse_utilization=utilization,
+                allocation_strategy=stats.get("allocation_strategy", "default"),
+                total_allocated_units=stats.get("total_allocated_units", 0),
+                active_reservations=stats.get("active_reservations", 0),
+                orders_allocated=stats.get("orders_allocated", 0),
+                allocation_success_rate=stats.get("allocation_success_rate", 100.0),
             )
         except Exception as exc:
             self.logger.warning("Allocation summary failed: %s", exc)
@@ -301,12 +236,10 @@ class UnifiedDashboardService:
             return AggregationSummaryWidget(
                 total_available_inventory=dash.get("total_available_inventory", 0),
                 total_reserved_inventory=dash.get("total_reserved_inventory", 0),
-                total_incoming_inventory=dash.get("total_incoming_inventory", 0),
-                total_damaged_inventory=dash.get("total_damaged_inventory", 0),
                 inventory_value=dash.get("inventory_value", 0.0),
-                warehouse_count=dash.get("warehouse_count", 0),
+                low_stock_variants=dash.get("low_stock_variants", 0),
+                out_of_stock_variants=dash.get("out_of_stock_variants", 0),
                 active_reservations_count=dash.get("active_reservations", 0),
-                transfer_in_transit_count=dash.get("transfer_in_transit_count", 0),
             )
         except Exception as exc:
             self.logger.warning("Aggregation summary failed: %s", exc)

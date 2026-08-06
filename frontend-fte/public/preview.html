@@ -67,18 +67,18 @@
         <span class="badge badge-green">Complete</span>
       </div>
       <div class="card">
-        <h3>🏭 Warehouse</h3>
-        <p>Multi-location inventory, transfers, capacity tracking, default warehouse config, reservations.</p>
-        <span class="badge badge-blue">Active Development</span>
+        <h3>📌 Reservation & Allocation</h3>
+        <p>Row-locked stock reservations, per-store allocation strategies, and order-driven booking flows.</p>
+        <span class="badge badge-green">Complete</span>
       </div>
       <div class="card">
         <h3>🛒 WooCommerce</h3>
-        <p>Product sync, order management, webhook processing, bulk operations. Integrated with warehouse.</p>
+        <p>Product sync, order management, webhook processing, bulk operations. Integrates with reservation &amp; allocation engines.</p>
         <span class="badge badge-blue">Active Development</span>
       </div>
       <div class="card">
         <h3>📊 Dashboard</h3>
-        <p>Analytics, aggregation, warehouse utilization, inventory health metrics.</p>
+        <p>Analytics, aggregation, allocation usage, inventory health metrics.</p>
         <span class="badge badge-purple">In Progress</span>
       </div>
       <div class="card">
@@ -90,23 +90,17 @@
 
     <h2 class="section-title">🔌 API Endpoints</h2>
     <div class="endpoints">
-      <div class="endpoint"><span class="method method-get">GET</span> /warehouses → List all warehouses</div>
-      <div class="endpoint"><span class="method method-post">POST</span> /warehouses → Create warehouse</div>
-      <div class="endpoint"><span class="method method-get">GET</span> /warehouses/{id} → Get warehouse details</div>
-      <div class="endpoint"><span class="method method-put">PUT</span> /warehouses/{id} → Update warehouse</div>
-      <div class="endpoint"><span class="method method-delete">DELETE</span> /warehouses/{id} → Delete warehouse</div>
-      <div class="endpoint"><span class="method method-get">GET</span> /warehouses/default → Get default warehouse</div>
-      <div class="endpoint"><span class="method method-post">POST</span> /warehouses/{id}/set-default → Set as default</div>
-      <div class="endpoint"><span class="method method-delete">DELETE</span> /warehouses/default → Clear default</div>
-      <div class="endpoint"><span class="method method-get">GET</span> /warehouses/settings → Get config settings</div>
-      <div class="endpoint"><span class="method method-put">PUT</span> /warehouses/settings → Update settings</div>
-      <div class="endpoint"><span class="method method-get">GET</span> /warehouses/{id}/inventory → Warehouse inventory</div>
-      <div class="endpoint"><span class="method method-post">POST</span> /warehouses/inventory/adjust → Adjust stock</div>
-      <div class="endpoint"><span class="method method-get">GET</span> /warehouses/{id}/capacity → Capacity info</div>
-      <div class="endpoint"><span class="method method-get">GET</span> /warehouses/{id}/analytics → Warehouse analytics</div>
-      <div class="endpoint"><span class="method method-post">POST</span> /warehouses/transfers → Create transfer</div>
-      <div class="endpoint"><span class="method method-get">GET</span> /warehouses/transfers → List transfers</div>
-      <div class="endpoint" style="color: #94a3b8;">... and 10 more endpoints for auth, inventory, WooCommerce</div>
+      <div class="endpoint"><span class="method method-get">GET</span> /reservations → List reservations</div>
+      <div class="endpoint"><span class="method method-post">POST</span> /reservations → Reserve stock</div>
+      <div class="endpoint"><span class="method method-post">POST</span> /reservations/{id}/commit → Commit reservation</div>
+      <div class="endpoint"><span class="method method-post">POST</span> /reservations/{id}/release → Release reservation</div>
+      <div class="endpoint"><span class="method method-get">GET</span> /allocation/settings → Get allocation settings</div>
+      <div class="endpoint"><span class="method method-put">PUT</span> /allocation/settings → Update allocation settings</div>
+      <div class="endpoint"><span class="method method-post">POST</span> /allocation/preview → Preview allocation</div>
+      <div class="endpoint"><span class="method method-post">POST</span> /allocation/order → Allocate for an order</div>
+      <div class="endpoint"><span class="method method-get">GET</span> /inventory/aggregate/store → Store-level aggregation</div>
+      <div class="endpoint"><span class="method method-get">GET</span> /dashboard/unified → All-in-one dashboard</div>
+      <div class="endpoint" style="color: #94a3b8;">... and more endpoints for auth, inventory, WooCommerce</div>
     </div>
 
     <h2 class="section-title">🔗 Quick Links</h2>

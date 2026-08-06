@@ -5,16 +5,15 @@ Orchestrates the full order pipeline from WooCommerce order import
 through allocation and reservation to inventory updates.
 
 Pipeline:
-WooCommerce Order → Order Sync → Allocation Engine → Reservation Engine → Warehouse Inventory
+WooCommerce Order → Order Sync → Allocation Engine → Reservation Engine → Store Inventory
 
-Reuses existing services:
+Reuses existing services (store-centric):
 - AllocationService.allocate_for_woocommerce()
 - ReservationService (reserve, commit, release)
-- WarehouseInventoryRepository
-- WarehouseService (for settings)
+- StoreSettingsRepository (for store settings)
 
-All failures in warehouse/allocation/reservation logic are caught
-and logged — WooCommerce sync always continues (E.6, E.10).
+All failures in allocation/reservation logic are caught and logged —
+WooCommerce sync always continues (E.6, E.10).
 """
 
 from __future__ import annotations
@@ -29,11 +28,10 @@ from sqlalchemy import select
 
 from app.models import Store
 from app.inventory.constants import ReservationSource, ReservationStatus
-from app.warehouse.allocation_service import AllocationService
-from app.warehouse.allocation_strategies import AllocationItem
-from app.warehouse.reservation_service import ReservationService
-from app.warehouse.service import WarehouseService
-from app.warehouse.repository import WarehouseSettingsRepository
+from app.inventory.allocation_service import AllocationService
+from app.inventory.allocation_strategies import AllocationItem
+from app.inventory.reservation_service import ReservationService
+from app.inventory.repository import StoreSettingsRepository
 from app.woocommerce.models import WooCommerceStore, WooCommerceOrder, WooCommerceOrderItem
 from app.woocommerce.constants import OrderStatus as WC_OrderStatus
 from app.woocommerce.exceptions import (
@@ -73,10 +71,7 @@ class WooCommerceOrderIntegrationService:
         self.reservation_service = ReservationService(
             db=db, store=store, user_id=user_id,
         )
-        self.warehouse_service = WarehouseService(
-            db=db, store=store, user_id=user_id,
-        )
-        self.settings_repo = WarehouseSettingsRepository(db)
+        self.settings_repo = StoreSettingsRepository(db)
         self.logger = logging.getLogger(f"{__name__}.WooCommerceOrderIntegrationService")
 
     # ═══════════════════════════════════════════════════════════════
@@ -92,7 +87,7 @@ class WooCommerceOrderIntegrationService:
         Allocate inventory for a WooCommerce order.
 
         Flow:
-        1. Check WarehouseSettings.reserve_stock_on_order (E.4)
+        1. Check StoreSettings.reserve_stock_on_order (E.4)
         2. Build allocation items from order line items
         3. Call AllocationService.allocate_for_woocommerce()
         4. Return allocation summary
@@ -112,7 +107,7 @@ class WooCommerceOrderIntegrationService:
             items = []
             for line_item in order.items:
                 if line_item.quantity > 0 and line_item.sku:
-                    # Find warehouse variant by SKU
+                    # Find inventory variant by SKU
                     variant = await self._find_inventory_variant(line_item.sku)
                     if variant:
                         items.append(AllocationItem(
@@ -141,7 +136,7 @@ class WooCommerceOrderIntegrationService:
             result["order_status"] = order.status.value
 
             self.logger.info(
-                "Order %s allocated: %d/%d items fulfilled, %d warehouses",
+                "Order %s allocated: %d/%d items fulfilled across %d SKUs",
                 order.number,
                 result.get("total_fulfilled", 0),
                 result.get("total_requested", 0),
@@ -179,7 +174,7 @@ class WooCommerceOrderIntegrationService:
         - refunded → release reservation (configurable)
         - failed → release reservation
 
-        Respects WarehouseSettings (E.4):
+        Respects StoreSettings (E.4):
         - auto_release_cancelled_orders
         - allow_negative_stock
         """
@@ -281,7 +276,7 @@ class WooCommerceOrderIntegrationService:
         Returns:
         - allocated_qty: total units allocated
         - unallocated_qty: total units not yet allocated
-        - warehouse_count: how many warehouses involved
+        - location_count: number of fulfillment locations (1 for a store)
         - reservation_ids: list of reservation UUIDs
         - status: fully_allocated | partially_allocated | out_of_stock
         """
@@ -293,7 +288,6 @@ class WooCommerceOrderIntegrationService:
         total_qty = sum(item.quantity for item in order.items)
         allocated_qty = sum(r.quantity for r in reservations)
         unallocated_qty = total_qty - allocated_qty
-        warehouse_ids = set(str(r.warehouse_id) for r in reservations)
 
         if allocated_qty >= total_qty:
             status = "fully_allocated"
@@ -308,8 +302,7 @@ class WooCommerceOrderIntegrationService:
             "total_quantity": total_qty,
             "allocated_quantity": allocated_qty,
             "unallocated_quantity": max(0, unallocated_qty),
-            "warehouse_count": len(warehouse_ids),
-            "warehouse_ids": list(warehouse_ids),
+            "location_count": 1 if allocated_qty > 0 else 0,
             "reservation_ids": [str(r.id) for r in reservations],
             "status": status,
         }

@@ -117,3 +117,100 @@ class InvalidStoreOwnershipError(InventoryError):
             message=f"{resource_type} {resource_id} does not belong to your store",
             detail={"resource_type": resource_type, "resource_id": resource_id},
         )
+
+
+class ReservationError(InventoryError):
+    """Base exception for reservation engine domain errors."""
+
+
+class ReservationNotFoundError(ReservationError):
+    """Raised when a requested reservation does not exist."""
+
+    def __init__(self, reservation_id: str):
+        super().__init__(
+            message=f"Reservation not found: {reservation_id}",
+            detail={"reservation_id": reservation_id},
+        )
+
+
+class InsufficientStockForReservationError(ReservationError):
+    """Raised when there is not enough stock to fulfill a reservation."""
+
+    def __init__(self, variant_id: str, requested: int, available: int):
+        super().__init__(
+            message=f"Insufficient stock to reserve {requested} units for variant "
+                    f"{variant_id} (available: {available})",
+            detail={
+                "variant_id": variant_id,
+                "requested": requested,
+                "available": available,
+            },
+        )
+
+
+class InvalidReservationStateError(ReservationError):
+    """Raised when a state transition is not allowed (e.g. committing a released reservation)."""
+
+    def __init__(self, reservation_id: str, current_status: str, action: str):
+        super().__init__(
+            message=f"Cannot {action} reservation {reservation_id} in status '{current_status}'",
+            detail={
+                "reservation_id": reservation_id,
+                "current_status": current_status,
+                "action": action,
+            },
+        )
+
+
+class DuplicateReservationError(ReservationError):
+    """Raised when an active reservation already exists for the same variant/order."""
+
+    def __init__(self, variant_id: str, order_id: str):
+        super().__init__(
+            message=f"An active reservation already exists for variant {variant_id} and order {order_id}",
+            detail={"variant_id": variant_id, "order_id": order_id},
+        )
+
+
+class AllocationError(InventoryError):
+    """Base exception for allocation engine domain errors."""
+
+
+class AllocationFailedError(AllocationError):
+    """Raised when allocation cannot be completed."""
+
+    def __init__(self, reason: str):
+        super().__init__(
+            message=f"Allocation failed: {reason}",
+            detail={"reason": reason},
+        )
+
+
+class InvalidAllocationStrategyError(AllocationError):
+    """Raised when an unknown allocation strategy is requested."""
+
+    def __init__(self, strategy_name: str):
+        super().__init__(
+            message=f"Unknown allocation strategy: {strategy_name}",
+            detail={"strategy_name": strategy_name},
+        )
+
+
+class StoreSettingsNotFoundError(InventoryError):
+    """Raised when store settings do not exist."""
+
+    def __init__(self, store_id: str):
+        super().__init__(
+            message=f"Store settings not found for store {store_id}",
+            detail={"store_id": store_id},
+        )
+
+
+class StoreSettingsValidationError(InventoryError):
+    """Raised when store settings data is invalid."""
+
+    def __init__(self, reason: str):
+        super().__init__(
+            message=f"Invalid store settings: {reason}",
+            detail={"reason": reason},
+        )

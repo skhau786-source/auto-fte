@@ -37,8 +37,8 @@ from app.inventory.exceptions import (
     InvalidStoreOwnershipError,
     ShopifySyncError,
 )
-from app.inventory.shopify_client import ShopifyClient
-from app.warehouse.aggregation_cache import aggregation_cache
+from app.shopify.shopify_client import ShopifyClient
+from app.inventory.aggregation_cache import aggregation_cache
 
 
 class InventoryService:
@@ -97,8 +97,9 @@ class InventoryService:
             variant_data = v_data.model_dump(exclude_unset=True)
             await self.variant_repo.create(product.id, variant_data)
 
-        # Refresh the product to load newly created variants into the relationship
-        await self.db.refresh(product)
+        # Refresh the product including its variants relationship so
+        # ``product.variants`` is populated (avoids async lazy-load).
+        await self.db.refresh(product, attribute_names=["variants"])
 
         # ── Log (only if variants exist — log FK references product_variants) ──
         if product.variants:
@@ -114,7 +115,7 @@ class InventoryService:
             )
 
         await self.db.commit()
-        await self.db.refresh(product)
+        await self.db.refresh(product, attribute_names=["variants"])
         return product
 
     async def get_product(self, product_id: uuid.UUID) -> Product:
@@ -162,7 +163,7 @@ class InventoryService:
                 )
 
         await self.db.commit()
-        await self.db.refresh(product)
+        await self.db.refresh(product, attribute_names=["variants"])
         return product
 
     async def delete_product(self, product_id: uuid.UUID) -> dict:

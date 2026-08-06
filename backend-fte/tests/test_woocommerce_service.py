@@ -34,8 +34,19 @@ from app.woocommerce.exceptions import (
 
 @pytest.fixture
 def mock_db():
-    """Create a mock database session."""
-    return AsyncMock(spec=AsyncSession)
+    """Create a mock database session.
+
+    execute() returns a plain MagicMock with sane defaults so that
+    `.scalar_one_or_none()` is None, `.scalar()` is 0 and `.scalars().all()`
+    is [] unless a test overrides them.
+    """
+    db = AsyncMock(spec=AsyncSession)
+    result = MagicMock()
+    result.scalar_one_or_none.return_value = None
+    result.scalar.return_value = 0
+    result.scalars.return_value.all.return_value = []
+    db.execute.return_value = result
+    return db
 
 
 @pytest.fixture
@@ -77,8 +88,9 @@ class TestStoreManagement:
             }
             mock_client_cls.return_value = mock_client
 
-            # Mock Celery initial sync
-            with patch("app.woocommerce.service.run_initial_sync") as mock_sync:
+            # Mock Celery initial sync (service.py imports it locally
+            # from app.woocommerce.tasks at call time)
+            with patch("app.woocommerce.tasks.run_initial_sync") as mock_sync:
                 mock_sync.delay.return_value = None
 
                 result = await service.connect_store(mock_data)
@@ -157,18 +169,23 @@ class TestInventoryManagement:
 
         mock_db.execute.return_value.scalar_one_or_none.return_value = mock_store
 
-        # Mock the product query (second execute call)
+        # Mock the queries: store, product, then settings (no settings → default threshold)
         mock_db.execute.side_effect = [
             MagicMock(scalar_one_or_none=lambda: mock_store),  # get_store
             MagicMock(scalar_one_or_none=lambda: mock_product),  # get_product
+            MagicMock(scalar_one_or_none=lambda: None),  # settings
         ]
 
-        result = await service.adjust_inventory(
-            store_id=store_id,
-            wc_product_id=123,
-            quantity_change=10,
-            reason="Restock",
-        )
+        # Mock the client used for the sync-to-WooCommerce push
+        with patch("app.woocommerce.service.WooCommerceClient") as mock_client_cls:
+            mock_client_cls.return_value.update_product = AsyncMock()
+
+            result = await service.adjust_inventory(
+                store_id=store_id,
+                wc_product_id=123,
+                quantity_change=10,
+                reason="Restock",
+            )
 
         assert result["quantity_before"] == 50
         assert result["quantity_after"] == 60

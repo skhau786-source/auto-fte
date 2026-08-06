@@ -5,7 +5,6 @@ Reuses the existing auth dependency (get_current_user) and database session
 (get_db) to resolve the authenticated user's active Shopify store.
 """
 
-import uuid
 from fastapi import Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession

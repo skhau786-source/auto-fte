@@ -29,14 +29,13 @@ router = APIRouter(prefix="/dashboard", tags=["Unified Dashboard"])
     response_model=UnifiedDashboardResponse,
     summary="Get unified dashboard with all inventory metrics",
     description="""
-    Returns a comprehensive dashboard combining metrics from all 6 phases:
+    Returns a comprehensive dashboard combining metrics from all phases:
 
     Phase 1 — Inventory: Products, variants, stock levels, low stock
-    Phase 2 — Warehouse: Warehouse count, capacity, transfers
-    Phase 3 — Reservation: Active reservations, success rate
-    Phase 4 — Allocation: Strategy, utilization, top warehouse
-    Phase 5 — Order Integration: Allocated/committed/released orders
-    Phase 6 — Aggregation: Total available/reserved/incoming/damaged stock
+    Phase 2 — Reservation: Active reservations, success rate
+    Phase 3 — Allocation: Strategy, allocated units, order coverage
+    Phase 4 — Order Integration: Allocated/committed/released orders
+    Phase 5 — Aggregation: Total available/reserved stock and value
     """,
 )
 async def get_unified_dashboard(

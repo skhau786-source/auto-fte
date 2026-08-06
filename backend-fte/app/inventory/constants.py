@@ -1,5 +1,4 @@
 import enum
-from decimal import Decimal
 
 
 class TransactionType(str, enum.Enum):
@@ -18,32 +17,9 @@ class TransactionType(str, enum.Enum):
 
 
 class AllocationStrategy(str, enum.Enum):
-    """Strategies for automatic warehouse allocation on order fulfillment."""
-    DEFAULT_WAREHOUSE = "default_warehouse"
-    HIGHEST_STOCK = "highest_stock"
-    PRIORITY = "priority"
-    ROUND_ROBIN = "round_robin"
-    NEAREST_WAREHOUSE = "nearest_warehouse"
+    """Strategies for automatic inventory allocation on order fulfillment."""
+    DEFAULT = "default"
     MANUAL = "manual"
-
-
-class WarehouseStatus(str, enum.Enum):
-    """Status of a warehouse."""
-    ACTIVE = "active"
-    INACTIVE = "inactive"
-    UNDER_MAINTENANCE = "under_maintenance"
-    CLOSED = "closed"
-
-
-class TransferStatus(str, enum.Enum):
-    """Status of a warehouse transfer."""
-    DRAFT = "draft"
-    PENDING = "pending"
-    APPROVED = "approved"
-    IN_TRANSIT = "in_transit"
-    COMPLETED = "completed"
-    CANCELLED = "cancelled"
-    PARTIALLY_RECEIVED = "partially_received"
 
 
 class ReservationStatus(str, enum.Enum):
@@ -85,14 +61,6 @@ class InventoryAction(str, enum.Enum):
     WEBHOOK_UPDATED = "webhook_inventory_updated"
     BULK_IMPORTED = "bulk_imported"
     THRESHOLD_UPDATED = "threshold_updated"
-    WAREHOUSE_CREATED = "warehouse_created"
-    WAREHOUSE_UPDATED = "warehouse_updated"
-    WAREHOUSE_ACTIVATED = "warehouse_activated"
-    WAREHOUSE_DEACTIVATED = "warehouse_deactivated"
-    TRANSFER_CREATED = "transfer_created"
-    TRANSFER_APPROVED = "transfer_approved"
-    TRANSFER_COMPLETED = "transfer_completed"
-    TRANSFER_CANCELLED = "transfer_cancelled"
     STOCK_RESERVED = "stock_reserved"
     RESERVATION_RELEASED = "reservation_released"
 

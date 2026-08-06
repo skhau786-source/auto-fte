@@ -173,7 +173,7 @@ class Organization(Base):
 
 
 class Team(Base):
-    """A sub-group within an organization (e.g., 'Warehouse Team', 'QA')."""
+    """A sub-group within an organization (e.g., 'Operations Team', 'QA')."""
     __tablename__ = "teams"
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)

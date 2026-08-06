@@ -94,14 +94,6 @@ def _postgres_available() -> bool:
 # ═══════════════════════════════════════════════════════════════════
 
 
-@pytest.fixture(scope="session")
-def event_loop():
-    """Create a single event loop for the entire test session."""
-    loop = asyncio.new_event_loop()
-    yield loop
-    loop.close()
-
-
 @pytest_asyncio.fixture(scope="session")
 async def setup_database():
     """Create all tables before the test session, drop them afterward.
@@ -127,24 +119,32 @@ async def setup_database():
 
 
 @pytest_asyncio.fixture
-async def db_session() -> AsyncIterator[AsyncSession]:
+async def db_session(setup_database) -> AsyncIterator[AsyncSession]:
     """
     Provide an isolated async session per test.
 
-    The session is rolled back after each test so changes never leak
-    between tests. This is the fastest isolation pattern.
+    Requests the session-scoped ``setup_database`` fixture first so all
+    tables exist before any query runs. Every test runs inside one outer
+    transaction: fixture/test ``commit()`` calls become savepoints
+    (``join_transaction_mode="create_savepoint"``) and the whole
+    transaction is rolled back at teardown, so data never leaks between
+    tests — even committed rows (unique emails, store domains, etc.).
 
     Skips if PostgreSQL is not available.
     """
-    if not _postgres_available():
-        pytest.skip("PostgreSQL not available. Skipping database-dependent test.")
-        return
-
-    async with _get_test_session_maker()() as session:
-        try:
-            yield session
-        finally:
-            await session.rollback()
+    connection = await _get_test_engine().connect()
+    trans = await connection.begin()
+    session = AsyncSession(
+        bind=connection,
+        join_transaction_mode="create_savepoint",
+        expire_on_commit=False,
+    )
+    try:
+        yield session
+    finally:
+        await session.close()
+        await trans.rollback()
+        await connection.close()
 
 
 @pytest_asyncio.fixture
@@ -239,12 +239,17 @@ async def test_product(
     )
     db_session.add(variant)
     await db_session.commit()
+    # Populate the relationship in async context so tests can safely
+    # access ``test_product.variants`` without triggering a lazy load.
+    await db_session.refresh(product, attribute_names=["variants"])
     return product
 
 
 @pytest_asyncio.fixture
 async def test_variant(test_product: Product) -> ProductVariant:
     """Return the sole variant of test_product."""
+    # ``test_product`` already refreshes its ``variants`` relationship in
+    # async context, so direct access here is safe (no async lazy load).
     return test_product.variants[0]
 
 
@@ -278,6 +283,10 @@ async def test_products_batch(
         products.append(p)
 
     await db_session.commit()
+    # Populate the variants relationship on every product so tests can
+    # access ``product.variants`` without an async lazy-load.
+    for p in products:
+        await db_session.refresh(p, attribute_names=["variants"])
     return products
 
 
@@ -333,7 +342,11 @@ async def mock_shopify_client():
     requests are ever made. Individual tests can configure the mock
     return values via the returned MagicMock instance.
     """
-    with patch("app.inventory.shopify_client.ShopifyClient", autospec=True) as mock:
+    # Patch the class in the source module AND in every module that bound
+    # it via ``from app.shopify.shopify_client import ShopifyClient``
+    # (e.g. app.inventory.service) — otherwise services hit the real API.
+    with patch("app.shopify.shopify_client.ShopifyClient", autospec=True) as mock, \
+         patch("app.inventory.service.ShopifyClient", mock):
         # Default mock: all async methods return sensible defaults
         mock_instance = mock.return_value
         mock_instance.set_inventory_level = AsyncMock(return_value={"id": "gid://shopify/InventoryLevel/123", "available": 50})
@@ -347,7 +360,7 @@ async def mock_shopify_client():
         mock_instance.__aexit__ = AsyncMock(return_value=None)
 
         # Use the real HMAC verification implementation while mocking HTTP calls
-        from app.inventory.shopify_client import ShopifyClient as _RealShopifyClient
+        from app.shopify.shopify_client import ShopifyClient as _RealShopifyClient
         mock.verify_webhook = _RealShopifyClient.verify_webhook
 
         yield mock

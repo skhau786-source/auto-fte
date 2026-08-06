@@ -1,6 +1,6 @@
 # Digital FTE — Backend
 
-A production-grade inventory management system with multi-warehouse support, WooCommerce integration, reservation engine, and intelligent allocation engine.
+A production-grade store-centric inventory management system with WooCommerce integration, a reservation engine, and an intelligent allocation engine.
 
 Built with **FastAPI**, **PostgreSQL**, **Redis**, and **SQLAlchemy**.
 
@@ -16,16 +16,16 @@ Built with **FastAPI**, **PostgreSQL**, **Redis**, and **SQLAlchemy**.
                              │
           ┌──────────────────┼──────────────────┐
           ▼                  ▼                   ▼
-   ┌────────────┐    ┌────────────┐    ┌──────────────┐
-   │ Inventory  │    │ Warehouse  │    │ Reservation  │
-   │ Service    │    │ Service    │    │ Engine       │
-   └────────────┘    └────────────┘    └──────────────┘
+   ┌────────────┐    ┌──────────────┐    ┌──────────────┐
+   │ Inventory  │    │ Reservation  │    │ Allocation   │
+   │ Service    │    │ Engine       │    │ Engine       │
+   └────────────┘    └──────────────┘    └──────────────┘
           │                  │                  │
           ▼                  ▼                  ▼
-   ┌────────────┐    ┌────────────┐    ┌──────────────┐
-   │ Allocation │    │  WooComm.  │    │ Aggregation  │
-   │ Engine     │    │  Sync      │    │ Engine       │
-   └────────────┘    └────────────┘    └──────────────┘
+   ┌────────────┐    ┌──────────────┐    ┌──────────────┐
+   │ WooComm.   │    │ Order        │    │ Aggregation  │
+   │ Sync       │    │ Integration  │    │ Engine       │
+   └────────────┘    └──────────────┘    └──────────────┘
           │                  │                  │
           └──────────────────┴──────────────────┘
                              │
@@ -46,12 +46,10 @@ Built with **FastAPI**, **PostgreSQL**, **Redis**, and **SQLAlchemy**.
 - Inventory transactions with full audit trail
 - Low stock alerts and notifications
 
-### ✅ Phase 2 — Warehouse Management
-- Multi-warehouse CRUD (create, read, update, delete)
-- Warehouse inventory tracking (available, reserved, incoming, damaged)
-- Warehouse capacity management with validation
-- Default warehouse configuration
-- Warehouse-to-warehouse transfers
+### Phase 2 — (Removed in the SaaS pivot)
+The multi-location storage management module was retired when the platform
+pivoted to a store-centric SaaS model. Store settings, reservations, and
+allocation are now configured directly per store.
 
 ### ✅ Phase 3 — Reservation Engine
 - Inventory reservation with `SELECT ... FOR UPDATE` row locking
@@ -60,10 +58,9 @@ Built with **FastAPI**, **PostgreSQL**, **Redis**, and **SQLAlchemy**.
 - Concurrent-safe reservation logic
 - WooCommerce order → reservation integration
 
-### ✅ Phase 4 — Warehouse Allocation Engine
-- Extensible Strategy Pattern for warehouse selection
-- 5 built-in strategies: Default, HighestStock, Priority, RoundRobin, Nearest
-- Split fulfillment across multiple warehouses
+### ✅ Phase 4 — Task Assignment Engine (Inventory Allocation)
+- Extensible Strategy Pattern for allocation strategy selection
+- Built-in strategies: Default, Manual
 - Store-level allocation settings (configurable per store)
 - Preview allocation before committing
 
@@ -75,17 +72,17 @@ Built with **FastAPI**, **PostgreSQL**, **Redis**, and **SQLAlchemy**.
 - Fulfillment summary (fully/partially/out-of-stock)
 
 ### ✅ Phase 6 — Inventory Aggregation Engine
-- Real-time inventory visibility across all warehouses
-- Variant, Product, Warehouse, and Store-level aggregation
+- Real-time inventory visibility across the store
+- Variant, Product, and Store-level aggregation
 - In-memory TTL cache with automatic invalidation
 - N+1 query elimination via SQL `GROUP BY` aggregates
 - Dashboard and report endpoints
 - Cache invalidation wired into all mutation services
 
 ### ✅ Phase 7 — Unified Dashboard
-- Single `GET /dashboard/unified` endpoint combining all 6 phases
+- Single `GET /dashboard/unified` endpoint combining metrics from all phases
 - Per-phase error isolation — one phase failure never blocks others
-- 40+ widgets: inventory summary, warehouse stats, reservation metrics, allocation utilization, order integration, aggregation totals
+- 40+ widgets: inventory summary, reservation metrics, allocation usage, order integration, aggregation totals
 
 ---
 
@@ -155,8 +152,7 @@ Visit [http://localhost:8000/docs](http://localhost:8000/docs) for interactive A
 backend-fte/
 ├── app/
 │   ├── auth/           # JWT + Google OAuth
-│   ├── inventory/      # Core inventory CRUD + Shopify sync
-│   ├── warehouse/      # Warehouse, transfers, reservations, allocation, aggregation
+│   ├── inventory/      # Inventory CRUD, reservations, allocation, aggregation, Shopify sync
 │   ├── woocommerce/    # WooCommerce sync + order integration
 │   ├── dashboard/      # Unified dashboard (Phase 7)
 │   ├── alerts/         # Low stock + failure alerts
@@ -185,7 +181,6 @@ frontend-fte/
 |--------|-------------|
 | `/auth` | Registration, login, Google OAuth |
 | `/inventory` | Products, variants, categories, stores |
-| `/warehouse` | Warehouse CRUD, inventory, transfers, settings |
 | `/reservations` | Reservation lifecycle |
 | `/allocation` | Allocation settings, preview, execute |
 | `/orders` | WooCommerce order integration |
@@ -203,7 +198,7 @@ cd backend-fte
 python -m pytest tests/ -v
 ```
 
-233+ tests all passing across all 7 phases.
+300+ tests covering all phases, run against a PostgreSQL test database.
 
 ---
 
@@ -221,5 +216,5 @@ See [DEPLOYMENT.md](backend-fte/DEPLOYMENT.md) for production deployment instruc
 
 ## Status
 
-**Production Ready** — All 7 phases implemented and validated.
+**Production Ready** — All active phases implemented and validated (Phase 2 removed in the SaaS pivot).
 # Digital-Fte-Startup

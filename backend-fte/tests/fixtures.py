@@ -43,6 +43,67 @@ async def create_store(
     return store
 
 
+# Backward-compatible alias used by test_end_to_end.py
+create_test_store = create_store
+
+
+async def create_test_user(
+    db: AsyncSession,
+    **overrides,
+):
+    """Create a RegisteredStudent for end-to-end tests."""
+    from app.models import RegisteredStudent
+
+    defaults = dict(
+        username="e2e_tester",
+        email="e2e@example.com",
+        full_name="E2E Tester",
+        auth_provider="local",
+        is_active=True,
+        is_verified=True,
+    )
+    defaults.update(overrides)
+    user = RegisteredStudent(**defaults)
+    db.add(user)
+    await db.commit()
+    return user
+
+
+def valid_product_payload(**overrides) -> dict:
+    """Payload accepted by POST /inventory (ProductCreateRequest)."""
+    payload = {
+        "title": "E2E Product",
+        "description": "End-to-end test product",
+        "vendor": "E2E Vendor",
+        "product_type": "Physical",
+        "status": "active",
+        "variants": [
+            {
+                "title": "Default",
+                "sku": "E2E-SKU-001",
+                "price": "19.99",
+                "inventory_quantity": 0,
+                "low_stock_threshold": 10,
+            }
+        ],
+    }
+    payload.update(overrides)
+    return payload
+
+
+def valid_adjust_payload(
+    variant_id: uuid.UUID,
+    quantity_change: int,
+    reason: str = "Test adjustment",
+) -> dict:
+    """Payload accepted by POST /inventory/update-stock."""
+    return {
+        "variant_id": str(variant_id),
+        "quantity_change": quantity_change,
+        "reason": reason,
+    }
+
+
 async def create_category(
     db: AsyncSession,
     store_id: uuid.UUID,

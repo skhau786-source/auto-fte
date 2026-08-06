@@ -28,28 +28,27 @@ from app.metrics import MetricsMiddleware, metrics_endpoint, init_metrics
 # ── Routes ──
 from app.auth.routes import router as auth_router
 from app.inventory.router import router as inventory_router
-from app.inventory.webhook import router as webhook_router
+from app.shopify.webhook import router as webhook_router
 from app.inventory.admin_router import router as admin_router
+
+# ── Shopify Routes ──
+from app.shopify.router import router as shopify_router
 
 # ── WooCommerce Routes ──
 from app.woocommerce.router import router as woocommerce_router
 from app.woocommerce.webhook import router as woocommerce_webhook_router
 
-# ── Warehouse Routes ──
-from app.warehouse.router import router as warehouse_router
-from app.warehouse.dashboard_router import router as warehouse_dashboard_router
-
 # ── Reservation Engine Routes (Phase 3) ──
-from app.warehouse.reservation_router import router as reservation_router
+from app.inventory.reservation_router import router as reservation_router
 
 # ── Allocation Engine Routes (Phase 4) ──
-from app.warehouse.allocation_router import router as allocation_router
+from app.inventory.allocation_router import router as allocation_router
 
 # ── WooCommerce Order Integration Routes (Phase 5) ──
 from app.woocommerce.order_integration_router import router as order_integration_router
 
 # ── Inventory Aggregation Routes (Phase 6) ──
-from app.warehouse.aggregation_router import router as aggregation_router
+from app.inventory.aggregation_router import router as aggregation_router
 
 # ── Unified Dashboard Routes (Phase 7) ──
 from app.dashboard.unified_router import router as unified_dashboard_router
@@ -170,13 +169,12 @@ app.include_router(inventory_router)
 app.include_router(webhook_router)
 app.include_router(admin_router)
 
+# ── Shopify Routes ──
+app.include_router(shopify_router)
+
 # ── WooCommerce Routes ──
 app.include_router(woocommerce_router)
 app.include_router(woocommerce_webhook_router)
-
-# ── Warehouse Routes ──
-app.include_router(warehouse_router)
-app.include_router(warehouse_dashboard_router)
 
 # ── Reservation Engine Routes (Phase 3) ──
 app.include_router(reservation_router)

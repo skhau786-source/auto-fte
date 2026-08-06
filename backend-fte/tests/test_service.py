@@ -341,20 +341,43 @@ class TestAdjustInventory:
                 quantity_change=10,
             )
 
-    async def test_commit_false(self, service: InventoryService, test_variant):
+    async def test_commit_false(
+        self, service: InventoryService, test_variant, db_session
+    ):
         """commit=False does not persist changes until a later commit."""
+        # Capture scalar IDs up front — the rollback below expires the ORM
+        # instance, and reading attributes afterwards would trigger an
+        # async lazy reload.
+        variant_id = test_variant.id
+        product_id = test_variant.product_id
         result = await service.adjust_inventory(
-            variant_id=test_variant.id,
+            variant_id=variant_id,
             quantity_change=50,
             reason="Deferred commit test",
             commit=False,
         )
         assert result["quantity_after"] == 150
-        # Data should NOT be committed yet
-        await assert_variant_quantity(service.db, test_variant.id, 100)
-        # Now commit
+        # The session runs in savepoint mode: an uncommitted change lives
+        # only in the current savepoint. Rolling it back must discard the
+        # adjustment (i.e. nothing was persisted).
+        await service.db.rollback()
+        await assert_variant_quantity(service.db, variant_id, 100)
+        # A deferred adjustment on a fresh variant is only visible after
+        # an explicit commit() — proving commit=False defers persistence.
+        from tests.fixtures import create_variant
+        v2 = await create_variant(
+            db_session, product_id=product_id, inventory_quantity=100
+        )
+        result2 = await service.adjust_inventory(
+            variant_id=v2.id,
+            quantity_change=50,
+            reason="Deferred commit test",
+            commit=False,
+        )
+        assert result2["quantity_after"] == 150
+        await assert_variant_quantity(service.db, v2.id, 100)
         await service.db.commit()
-        await assert_variant_quantity(service.db, test_variant.id, 150)
+        await assert_variant_quantity(service.db, v2.id, 150)
 
     async def test_commit_first_sync_second(self, service: InventoryService, test_variant):
         """Verify commit-first ordering: local changes committed before Shopify sync."""
@@ -409,7 +432,8 @@ class TestBulkAdjustInventory:
         results = await service.bulk_adjust_inventory(adjustments)
         assert results[0]["success"] is True
         assert results[1]["success"] is False
-        assert "VariantNotFoundError" in str(results[1].get("error", ""))
+        # bulk_adjust_inventory stores the exception message (e.g. "Variant not found: ...")
+        assert "Variant not found" in str(results[1].get("error", ""))
         # batch commit already happened inside bulk_adjust_inventory
         await assert_variant_quantity(service.db, valid_id, 110)
 

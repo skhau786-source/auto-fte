@@ -24,8 +24,7 @@ from app.models import (
     ProductVariant,
     InventoryTransaction,
     InventoryLog,
-    Category,
-    Store,
+    StoreSettings,
     TransactionType,
 )
 
@@ -327,6 +326,11 @@ class VariantRepository:
             select(ProductVariant)
             .options(joinedload(ProductVariant.product))
             .where(ProductVariant.id == variant_id)
+            # Refresh even if the instance is already in the identity map,
+            # so ``variant.product`` is always eagerly populated. Without
+            # this, a stale identity-map hit would lazy-load the
+            # relationship outside an async greenlet.
+            .execution_options(populate_existing=True)
         )
         return result.scalar_one_or_none()
 
@@ -680,3 +684,46 @@ class LogRepository:
         logs = list(result.scalars().all())
 
         return logs, total
+
+
+# ═══════════════════════════════════════════════════════════════════
+# STORE SETTINGS REPOSITORY (SaaS store configuration)
+# ═══════════════════════════════════════════════════════════════════
+
+
+class StoreSettingsRepository:
+    """Data access for per-store inventory/fulfillment settings."""
+
+    def __init__(self, db: AsyncSession):
+        self.db = db
+
+    async def get_by_store(self, store_id: uuid.UUID) -> Optional[StoreSettings]:
+        """Fetch settings for a store (one-to-one)."""
+        result = await self.db.execute(
+            select(StoreSettings).where(StoreSettings.store_id == store_id)
+        )
+        return result.scalar_one_or_none()
+
+    async def get_or_create(self, store_id: uuid.UUID) -> StoreSettings:
+        """Return existing settings or create defaults for the store."""
+        settings = await self.get_by_store(store_id)
+        if settings is not None:
+            return settings
+
+        settings = StoreSettings(store_id=store_id)
+        self.db.add(settings)
+        await self.db.flush()
+        return settings
+
+    async def update(self, store_id: uuid.UUID, data: dict) -> Optional[StoreSettings]:
+        """Partially update settings for a store."""
+        settings = await self.get_by_store(store_id)
+        if settings is None:
+            return None
+
+        for field, value in data.items():
+            if hasattr(settings, field):
+                setattr(settings, field, value)
+
+        await self.db.flush()
+        return settings

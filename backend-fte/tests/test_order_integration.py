@@ -9,7 +9,7 @@ Covers:
 - E.5: Webhook Integration
 - E.6: Sync Engine Integration
 - E.7: Fulfillment Summary
-- E.8: Multi-Warehouse Orders
+- E.8: Orders with Multiple Reservations
 - E.9: Inventory Updates
 - E.10: Failure Recovery
 - E.11: Dashboard
@@ -88,7 +88,6 @@ def mock_variant():
 def mock_reservation():
     res = MagicMock()
     res.id = uuid.uuid4()
-    res.warehouse_id = uuid.uuid4()
     res.variant_id = uuid.uuid4()
     res.quantity = 5
     res.status = ReservationStatus.ACTIVE
@@ -127,7 +126,7 @@ class TestAllocation:
             "total_requested": 5,
             "total_fulfilled": 5,
             "fully_fulfilled": True,
-            "strategy_used": "default_warehouse",
+            "strategy_used": "default",
             "items": [{"variant_id": str(mock_variant.id), "requested": 5, "fulfilled": 5}],
         })
 
@@ -224,7 +223,7 @@ class TestReservationIntegration:
             "total_requested": 5,
             "total_fulfilled": 5,
             "fully_fulfilled": True,
-            "strategy_used": "default_warehouse",
+            "strategy_used": "default",
             "items": [{"variant_id": str(mock_variant.id), "requested": 5, "fulfilled": 5}],
         })
 
@@ -282,7 +281,6 @@ class TestStatusEvents:
         mock_res.id = uuid.uuid4()
         mock_res.status = ReservationStatus.ACTIVE
         mock_res.quantity = 5
-        mock_res.warehouse_id = uuid.uuid4()
 
         service.reservation_service.repo.get_by_order = AsyncMock(return_value=[mock_res])
         service.reservation_service.commit_stock = AsyncMock(return_value=mock_res)
@@ -438,7 +436,7 @@ class TestSyncIntegration:
 
 
 class TestFulfillmentSummary:
-    """E.7, E.8: Fulfillment summary with multi-warehouse support."""
+    """E.7, E.8: Fulfillment summary with multiple reservations (single store location)."""
 
     @pytest.mark.asyncio
     async def test_fully_allocated(self, mock_db, mock_wc_store, mock_inventory_store, mock_order, mock_reservation):
@@ -449,7 +447,6 @@ class TestFulfillmentSummary:
 
         mock_reservation.quantity = 5
         mock_reservation.status = ReservationStatus.ACTIVE
-        mock_reservation.warehouse_id = uuid.uuid4()
 
         service.reservation_service.repo.get_by_order = AsyncMock(return_value=[mock_reservation])
 
@@ -467,7 +464,6 @@ class TestFulfillmentSummary:
         )
 
         mock_reservation.quantity = 3
-        mock_reservation.warehouse_id = uuid.uuid4()
 
         service.reservation_service.repo.get_by_order = AsyncMock(return_value=[mock_reservation])
 
@@ -494,19 +490,16 @@ class TestFulfillmentSummary:
         assert result["allocated_quantity"] == 0
 
     @pytest.mark.asyncio
-    async def test_multi_warehouse(self, mock_db, mock_wc_store, mock_inventory_store, mock_order):
-        """E.8: Multi-warehouse orders show correct warehouse count."""
+    async def test_multiple_reservations(self, mock_db, mock_wc_store, mock_inventory_store, mock_order):
+        """E.8: Orders with multiple reservations report a single store location."""
         service = WooCommerceOrderIntegrationService(
             db=mock_db, wc_store=mock_wc_store, store=mock_inventory_store, user_id=uuid.uuid4(),
         )
 
-        wh_ids = [uuid.uuid4(), uuid.uuid4()]
-
         reservations = []
-        for i, wh_id in enumerate(wh_ids):
+        for i in range(2):
             res = MagicMock()
             res.quantity = 5
-            res.warehouse_id = wh_id
             res.status = ReservationStatus.ACTIVE
             res.id = uuid.uuid4()
             reservations.append(res)
@@ -516,7 +509,7 @@ class TestFulfillmentSummary:
         mock_order.items[0].quantity = 10
         result = await service.get_fulfillment_summary(mock_order)
 
-        assert result["warehouse_count"] == 2
+        assert result["location_count"] == 1
         assert result["status"] == "fully_allocated"
 
 
@@ -569,7 +562,6 @@ class TestInventoryUpdates:
         mock_res.id = uuid.uuid4()
         mock_res.status = ReservationStatus.ACTIVE
         mock_res.quantity = 5
-        mock_res.warehouse_id = uuid.uuid4()
 
         service.reservation_service.repo.get_by_order = AsyncMock(return_value=[mock_res])
         service.reservation_service.release_stock = AsyncMock(return_value=mock_res)
@@ -606,9 +598,11 @@ class TestDashboard:
         })
 
         service.allocation_service.get_dashboard_stats = AsyncMock(return_value={
-            "allocation_strategy": "default_warehouse",
-            "multi_warehouse_enabled": False,
-            "total_warehouses": 2,
+            "allocation_strategy": "default",
+            "total_allocated_units": 20,
+            "active_reservations": 5,
+            "orders_allocated": 2,
+            "allocation_success_rate": 100.0,
         })
 
         # Mock the db session for the dashboard query
@@ -623,7 +617,7 @@ class TestDashboard:
         allocation_stats = await service.allocation_service.get_dashboard_stats()
 
         assert reservation_stats["active_reservations"] == 5
-        assert allocation_stats["allocation_strategy"] == "default_warehouse"
+        assert allocation_stats["allocation_strategy"] == "default"
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -781,7 +775,7 @@ class TestFailureRecovery:
 
 
 class TestConfigurableBehavior:
-    """E.4: Respect WarehouseSettings configuration."""
+    """E.4: Respect StoreSettings configuration."""
 
     @pytest.mark.asyncio
     async def test_reserve_stock_on_order_respected(self, mock_db, mock_wc_store, mock_inventory_store, mock_order):
@@ -849,15 +843,14 @@ class TestRegression:
         assert WooCommerceService is not None
         assert WooCommerceOrder is not None
 
-    def test_warehouse_imports_unaffected(self):
-        """Existing warehouse imports still work."""
-        from app.warehouse.allocation_service import AllocationService
-        from app.warehouse.reservation_service import ReservationService
-        from app.warehouse.service import WarehouseService
-        from app.warehouse.repository import WarehouseSettingsRepository
+    def test_store_centric_engines_importable(self):
+        """Store-centric engines are importable from app.inventory."""
+        from app.inventory.allocation_service import AllocationService
+        from app.inventory.reservation_service import ReservationService
+        from app.inventory.repository import StoreSettingsRepository
         assert AllocationService is not None
         assert ReservationService is not None
-        assert WarehouseService is not None
+        assert StoreSettingsRepository is not None
 
     def test_router_no_duplicate_prefix(self):
         """The order_integration_router uses /orders prefix without conflict."""

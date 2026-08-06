@@ -164,7 +164,7 @@ class SchedulerService:
         the maximum retry attempts in the retry worker.
         """
         async with self.SessionLocal() as db:
-            from app.inventory.retry_worker import DEAD_LETTER_THRESHOLD_HOURS
+            from app.shopify.retry_worker import DEAD_LETTER_THRESHOLD_HOURS
 
             cutoff = datetime.now(timezone.utc) - timedelta(hours=DEAD_LETTER_THRESHOLD_HOURS)
 

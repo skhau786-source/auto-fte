@@ -16,9 +16,8 @@ Endpoints:
 
 import logging
 from datetime import datetime, timezone, timedelta
-from typing import Optional, Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 
@@ -57,7 +56,7 @@ async def retry_failed_syncs(
     service: InventoryService = Depends(_get_admin_service),
 ):
     """Retry all unsynced transactions for the store."""
-    from app.inventory.shopify_client import ShopifyClient
+    from app.shopify.shopify_client import ShopifyClient
 
     store = service.store
     txn_repo = TransactionRepository(service.db)
@@ -150,7 +149,7 @@ async def reregister_webhooks(
     service: InventoryService = Depends(_get_admin_service),
 ):
     """Re-register all Shopify webhooks for the store."""
-    from app.inventory.webhook_registration import register_webhooks
+    from app.shopify.webhook_registration import register_webhooks
 
     base_url = f"https://{service.store.shopify_domain}"
     results = await register_webhooks(
@@ -251,7 +250,7 @@ async def get_dead_letters(
     service: InventoryService = Depends(_get_admin_service),
 ):
     """View dead letter transactions — those that can't be retried."""
-    from app.inventory.retry_worker import DEAD_LETTER_THRESHOLD_HOURS, MAX_RETRY_ATTEMPTS
+    from app.shopify.retry_worker import DEAD_LETTER_THRESHOLD_HOURS, MAX_RETRY_ATTEMPTS
 
     txn_repo = TransactionRepository(service.db)
     unsynced = await txn_repo.get_unsynced(service.store.id, limit=200)

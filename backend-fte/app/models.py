@@ -9,7 +9,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
 from app.inventory.constants import (
-    TransactionType, WarehouseStatus, TransferStatus,
+    TransactionType,
     ReservationStatus, ReservationSource,
 )
 
@@ -318,92 +318,19 @@ class InventoryLog(Base):
 
 
 # ═══════════════════════════════════════════════════════════════════
-# WAREHOUSE MANAGEMENT MODULES (Milestone 4)
+# STORE CONFIGURATION (SaaS inventory platform)
 # ═══════════════════════════════════════════════════════════════════
 
 
-class Warehouse(Base):
+class StoreSettings(Base):
     """
-    Physical or virtual warehouse/storage location.
-    Each warehouse belongs to a store and can hold inventory independently.
+    Per-store inventory & fulfillment configuration.
+
+    Each store has exactly one settings record controlling allocation and
+    reservation behavior (auto-allocate, reserve-on-order, negative stock,
+    order cancellation).
     """
-    __tablename__ = "warehouses"
-
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    store_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True),
-        ForeignKey("stores.id", ondelete="CASCADE"),
-        nullable=False,
-        index=True,
-    )
-
-    code: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
-    name: Mapped[str] = mapped_column(String(255), nullable=False)
-    description: Mapped[str | None] = mapped_column(Text, nullable=True)
-
-    # Address
-    address: Mapped[str | None] = mapped_column(String(500), nullable=True)
-    city: Mapped[str | None] = mapped_column(String(100), nullable=True)
-    state: Mapped[str | None] = mapped_column(String(100), nullable=True)
-    country: Mapped[str | None] = mapped_column(String(100), nullable=True)
-    postal_code: Mapped[str | None] = mapped_column(String(20), nullable=True)
-    latitude: Mapped[float | None] = mapped_column(Numeric(10, 7), nullable=True)
-    longitude: Mapped[float | None] = mapped_column(Numeric(10, 7), nullable=True)
-
-    # Contact
-    phone: Mapped[str | None] = mapped_column(String(50), nullable=True)
-    email: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    manager_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True),
-        ForeignKey("registered_students.id", ondelete="SET NULL"),
-        nullable=True,
-    )
-
-    # Capacity (in cubic meters or units)
-    capacity: Mapped[int | None] = mapped_column(Integer, nullable=True, comment="Maximum storage capacity in units")
-    capacity_unit: Mapped[str] = mapped_column(String(20), default="units", nullable=False)
-
-    # Default warehouse flag (only one per store can be default)
-    is_default: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
-
-    # Status
-    status: Mapped[WarehouseStatus] = mapped_column(
-        Enum(WarehouseStatus, name="warehouse_status_enum"),
-        default=WarehouseStatus.ACTIVE,
-        nullable=False,
-    )
-    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
-
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
-    )
-
-    # Relationships
-    store: Mapped["Store"] = relationship()
-    manager: Mapped["RegisteredStudent | None"] = relationship()
-    inventory_items: Mapped[list["WarehouseInventory"]] = relationship(
-        back_populates="warehouse", cascade="all, delete-orphan",
-    )
-    source_transfers: Mapped[list["WarehouseTransfer"]] = relationship(
-        back_populates="source_warehouse_rel",
-        foreign_keys="WarehouseTransfer.source_warehouse_id",
-        cascade="all, delete-orphan",
-    )
-    dest_transfers: Mapped[list["WarehouseTransfer"]] = relationship(
-        back_populates="destination_warehouse_rel",
-        foreign_keys="WarehouseTransfer.destination_warehouse_id",
-        cascade="all, delete-orphan",
-    )
-
-
-class WarehouseSettings(Base):
-    """
-    Per-store warehouse configuration settings.
-    Controls how warehouses behave for inventory allocation, reservation, etc.
-    One-to-one with Store — each store has exactly one settings record.
-    """
-    __tablename__ = "warehouse_settings"
+    __tablename__ = "store_settings"
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     store_id: Mapped[uuid.UUID] = mapped_column(
@@ -414,24 +341,13 @@ class WarehouseSettings(Base):
         index=True,
     )
 
-    # Which warehouse is the default
-    default_warehouse_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True),
-        ForeignKey("warehouses.id", ondelete="SET NULL"),
-        nullable=True,
-    )
-
-    # Behavior flags (B.1)
+    # Behavior flags
     auto_allocate_inventory: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
-    multi_warehouse_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
-    allocation_strategy: Mapped[str] = mapped_column(String(50), default="default_warehouse", nullable=False)
+    allocation_strategy: Mapped[str] = mapped_column(String(50), default="default", nullable=False)
     allow_negative_stock: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     reserve_stock_on_order: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     auto_release_cancelled_orders: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
 
-    # Priority ordering for PriorityWarehouseStrategy (Phase 4)
-    allocation_priority: Mapped[list | None] = mapped_column(JSONB, nullable=True, default=list)
-
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
@@ -439,136 +355,6 @@ class WarehouseSettings(Base):
 
     # Relationships
     store: Mapped["Store"] = relationship()
-    default_warehouse: Mapped["Warehouse | None"] = relationship()
-
-
-class WarehouseInventory(Base):
-    """
-    Per-variant inventory tracking at each warehouse.
-    This is the core multi-location inventory record.
-    """
-    __tablename__ = "warehouse_inventory"
-
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    warehouse_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True),
-        ForeignKey("warehouses.id", ondelete="CASCADE"),
-        nullable=False,
-        index=True,
-    )
-    product_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True),
-        ForeignKey("products.id", ondelete="CASCADE"),
-        nullable=True,
-        index=True,
-    )
-    variant_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True),
-        ForeignKey("product_variants.id", ondelete="CASCADE"),
-        nullable=True,
-        index=True,
-    )
-
-    # Stock breakdown
-    available_stock: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
-    reserved_stock: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
-    incoming_stock: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
-    damaged_stock: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
-
-    # Thresholds
-    minimum_stock: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
-    maximum_stock: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    reorder_point: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
-
-    # Physical location within warehouse
-    bin_location: Mapped[str | None] = mapped_column(String(100), nullable=True)
-    shelf: Mapped[str | None] = mapped_column(String(100), nullable=True)
-
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
-    )
-
-    # Relationships
-    warehouse: Mapped["Warehouse"] = relationship(back_populates="inventory_items")
-    product: Mapped["Product | None"] = relationship()
-    variant: Mapped["ProductVariant | None"] = relationship()
-
-    # Unique constraint: one inventory record per variant per warehouse
-    __table_args__ = (
-        UniqueConstraint("warehouse_id", "variant_id", name="uq_warehouse_variant"),
-    )
-
-
-class WarehouseTransfer(Base):
-    """
-    Inventory transfer between warehouses.
-    Tracks the full lifecycle: draft → pending → approved → in_transit → completed.
-    """
-    __tablename__ = "warehouse_transfers"
-
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    store_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True),
-        ForeignKey("stores.id", ondelete="CASCADE"),
-        nullable=False,
-        index=True,
-    )
-
-    transfer_number: Mapped[str] = mapped_column(String(50), nullable=False, unique=True, index=True)
-
-    source_warehouse_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True),
-        ForeignKey("warehouses.id", ondelete="RESTRICT"),
-        nullable=False,
-    )
-    destination_warehouse_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True),
-        ForeignKey("warehouses.id", ondelete="RESTRICT"),
-        nullable=False,
-    )
-
-    status: Mapped[TransferStatus] = mapped_column(
-        Enum(TransferStatus, name="transfer_status_enum"),
-        default=TransferStatus.DRAFT,
-        nullable=False,
-    )
-
-    requested_by_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True),
-        ForeignKey("registered_students.id", ondelete="SET NULL"),
-        nullable=True,
-    )
-    approved_by_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True),
-        ForeignKey("registered_students.id", ondelete="SET NULL"),
-        nullable=True,
-    )
-
-    transfer_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    completed_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-
-    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
-
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
-    )
-
-    # Relationships
-    store: Mapped["Store"] = relationship()
-    source_warehouse_rel: Mapped["Warehouse"] = relationship(
-        back_populates="source_transfers",
-        foreign_keys=[source_warehouse_id],
-    )
-    destination_warehouse_rel: Mapped["Warehouse"] = relationship(
-        back_populates="dest_transfers",
-        foreign_keys=[destination_warehouse_id],
-    )
-    requested_by: Mapped["RegisteredStudent | None"] = relationship(foreign_keys=[requested_by_id])
-    approved_by: Mapped["RegisteredStudent | None"] = relationship(foreign_keys=[approved_by_id])
-    items: Mapped[list["WarehouseTransferItem"]] = relationship(
-        back_populates="transfer", cascade="all, delete-orphan",
-    )
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -581,9 +367,10 @@ class InventoryReservation(Base):
     Inventory reservation record.
 
     Tracks the full lifecycle: PENDING -> ACTIVE -> COMMITTED / RELEASED / EXPIRED / CANCELLED.
-    Uses pessimistic locking (SELECT FOR UPDATE) to prevent double reservations.
+    Uses pessimistic locking (SELECT FOR UPDATE) on the variant to prevent
+    double reservations.
 
-    One reservation per (store, warehouse, variant, order) for positive tracking.
+    One reservation per (store, variant, order) for positive tracking.
     """
     __tablename__ = "inventory_reservations"
 
@@ -592,18 +379,6 @@ class InventoryReservation(Base):
         UUID(as_uuid=True),
         ForeignKey("stores.id", ondelete="CASCADE"),
         nullable=False,
-        index=True,
-    )
-    warehouse_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True),
-        ForeignKey("warehouses.id", ondelete="RESTRICT"),
-        nullable=False,
-        index=True,
-    )
-    inventory_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True),
-        ForeignKey("warehouse_inventory.id", ondelete="SET NULL"),
-        nullable=True,
         index=True,
     )
     product_id: Mapped[uuid.UUID | None] = mapped_column(
@@ -652,53 +427,14 @@ class InventoryReservation(Base):
 
     # Relationships
     store: Mapped["Store"] = relationship()
-    warehouse: Mapped["Warehouse"] = relationship()
-    inventory: Mapped["WarehouseInventory | None"] = relationship()
     product: Mapped["Product | None"] = relationship()
     variant: Mapped["ProductVariant | None"] = relationship()
 
     # Ensure one active reservation per variant per order
     __table_args__ = (
         UniqueConstraint(
-            "variant_id", "order_id", "warehouse_id",
-            name="uq_reservation_variant_order_warehouse",
+            "variant_id", "order_id",
+            name="uq_reservation_variant_order",
         ),
     )
 
-
-class WarehouseTransferItem(Base):
-    """Individual line items within a warehouse transfer."""
-    __tablename__ = "warehouse_transfer_items"
-
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    transfer_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True),
-        ForeignKey("warehouse_transfers.id", ondelete="CASCADE"),
-        nullable=False,
-        index=True,
-    )
-
-    product_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True),
-        ForeignKey("products.id", ondelete="SET NULL"),
-        nullable=True,
-    )
-    variant_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True),
-        ForeignKey("product_variants.id", ondelete="SET NULL"),
-        nullable=True,
-    )
-
-    quantity: Mapped[int] = mapped_column(Integer, nullable=False)
-    received_quantity: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    reason: Mapped[str | None] = mapped_column(String(500), nullable=True)
-
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
-    )
-
-    # Relationships
-    transfer: Mapped["WarehouseTransfer"] = relationship(back_populates="items")
-    product: Mapped["Product | None"] = relationship()
-    variant: Mapped["ProductVariant | None"] = relationship()

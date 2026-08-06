@@ -89,7 +89,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    command: python -m app.inventory.retry_worker
+    command: python -m app.shopify.retry_worker
     env_file:
       - .env.production
     depends_on:

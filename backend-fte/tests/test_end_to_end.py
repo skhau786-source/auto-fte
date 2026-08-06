@@ -135,6 +135,16 @@ async def test_happy_path_full_workflow(auth_client, db_session, test_store):
     assert product is not None
     assert product.store_id == test_store.id
 
+    # Give the variant a Shopify inventory item id so the stock adjustment
+    # can be pushed to the (mocked) Shopify API.
+    from sqlalchemy import update as sql_update
+    await db_session.execute(
+        sql_update(ProductVariant)
+        .where(ProductVariant.id == uuid.UUID(variant_id))
+        .values(shopify_inventory_item_id=555555)
+    )
+    await db_session.commit()
+
     # ── Step 2: Get product ──
     resp = await auth_client.get(f"/inventory/{product_id}")
     assert resp.status_code == 200

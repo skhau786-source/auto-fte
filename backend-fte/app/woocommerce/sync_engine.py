@@ -46,16 +46,6 @@ from app.woocommerce.exceptions import (
     WooCommerceAPIError,
 )
 
-# ── Warehouse integration (optional — failures don't break sync) ──
-try:
-    from app.warehouse.woocommerce_sync_service import WarehouseInventorySyncService
-    _WAREHOUSE_SYNC_AVAILABLE = True
-except ImportError:
-    WarehouseInventorySyncService = None
-    _WAREHOUSE_SYNC_AVAILABLE = False
-    logger = logging.getLogger(__name__)
-    logger.debug("WarehouseInventorySyncService not available — warehouse sync disabled")
-
 # ── Order Integration (Phase 5 — optional, failures don't break sync) ──
 try:
     from app.woocommerce.order_integration_service import WooCommerceOrderIntegrationService
@@ -250,24 +240,7 @@ class SyncEngine:
                 else:
                     new_product = await self._create_product(normalized, wc_product)
                     progress.record_success("created")
-                    existing = new_product  # Use the new record for warehouse sync
-
-                # ── Warehouse Inventory Sync (non-blocking, for ALL products) ──
-                if _WAREHOUSE_SYNC_AVAILABLE and existing:
-                    try:
-                        wc_sync = WarehouseInventorySyncService(self.db)
-                        stock_qty = normalized.get("stock_quantity", 0) or 0
-                        await wc_sync.sync_wc_product_to_warehouse(
-                            wc_store=self.store,
-                            wc_product=existing,
-                            stock_quantity=stock_qty,
-                        )
-                    except Exception as wh_exc:
-                        self.logger.warning(
-                            "Warehouse sync skipped for product %d: %s "
-                            "— WooCommerce sync continues unaffected",
-                            wc_product.get("id"), wh_exc,
-                        )
+                    existing = new_product
 
                 # Update sync log progress periodically
                 if progress.processed % self.chunk_size == 0:
@@ -627,22 +600,6 @@ class SyncEngine:
                         source="sync_engine",
                     )
                     self.db.add(log)
-
-                # ── Warehouse Inventory Sync (non-blocking) ──
-                if _WAREHOUSE_SYNC_AVAILABLE and existing:
-                    try:
-                        wc_sync = WarehouseInventorySyncService(self.db)
-                        await wc_sync.sync_wc_product_to_warehouse(
-                            wc_store=self.store,
-                            wc_product=existing,
-                            stock_quantity=new_stock or 0,
-                        )
-                    except Exception as wh_exc:
-                        self.logger.warning(
-                            "Warehouse sync skipped during inventory sync "
-                            "for product %d: %s — WooCommerce sync unaffected",
-                            wc_id, wh_exc,
-                        )
 
                 progress.record_success("updated")
 

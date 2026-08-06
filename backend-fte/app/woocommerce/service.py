@@ -63,15 +63,6 @@ from app.woocommerce.exceptions import (
 )
 from app.woocommerce.encryption import encrypt_value, decrypt_value, mask_credential
 
-# ── Warehouse integration (optional — failures don't break sync) ──
-try:
-    from app.warehouse.woocommerce_sync_service import WarehouseInventorySyncService
-    _WAREHOUSE_SYNC_AVAILABLE = True
-except ImportError:
-    WarehouseInventorySyncService = None  # type: ignore
-    _WAREHOUSE_SYNC_AVAILABLE = False
-    logger.debug("WarehouseInventorySyncService not available — warehouse sync disabled")
-
 logger = logging.getLogger(__name__)
 
 
@@ -454,45 +445,6 @@ class WooCommerceService:
                 except Exception as exc:
                     self.logger.error("Failed to sync product %s: %s", wc_product.get("id"), exc)
                     stats["failed"] += 1
-
-            # ── Warehouse Inventory Sync (non-blocking, best-effort) ──
-            if _WAREHOUSE_SYNC_AVAILABLE:
-                try:
-                    wc_sync = WarehouseInventorySyncService(self.db)
-                    batch_results = []
-                    for wc_product in wc_products:
-                        normalized = WooCommerceClient.normalize_product(wc_product)
-                        wc_id = normalized["wc_product_id"]
-                        stock_qty = normalized.get("stock_quantity", 0) or 0
-
-                        # Find the local WooCommerceProduct record
-                        existing_result = await self.db.execute(
-                            select(WooCommerceProduct).where(
-                                WooCommerceProduct.store_id == store_id,
-                                WooCommerceProduct.wc_product_id == wc_id,
-                            )
-                        )
-                        wc_product_record = existing_result.scalar_one_or_none()
-                        if wc_product_record:
-                            result = await wc_sync.sync_wc_product_to_warehouse(
-                                wc_store=store,
-                                wc_product=wc_product_record,
-                                stock_quantity=stock_qty,
-                            )
-                            batch_results.append(result)
-
-                    synced = sum(1 for r in batch_results if r.get("status") == "synced")
-                    if synced > 0:
-                        self.logger.info(
-                            "Warehouse sync for store %s: %d products synced",
-                            store.store_name, synced,
-                        )
-                except Exception as wh_exc:
-                    self.logger.warning(
-                        "Warehouse sync failed for store %s: %s "
-                        "— WooCommerce sync continues unaffected",
-                        store.store_name, wh_exc,
-                    )
 
             # Update store's last_sync_at
             store.last_sync_at = datetime.now(timezone.utc)

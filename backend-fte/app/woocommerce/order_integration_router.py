@@ -27,7 +27,6 @@ from app.dependencies import get_current_user
 from app.models import RegisteredStudent, Store
 
 from app.inventory.dependencies import get_store_for_user
-from app.warehouse.reservation_service import ReservationService
 
 from app.woocommerce.order_integration_service import WooCommerceOrderIntegrationService
 from app.woocommerce.models import WooCommerceOrder, WooCommerceStore
@@ -141,7 +140,6 @@ async def get_order_reservations(
     service: WooCommerceOrderIntegrationService = Depends(_get_integration_service),
 ):
     """Get all reservations for an order."""
-    from app.warehouse.schemas import ReservationOut
     order_id = str(order.wc_order_id)
     reservations = await service.reservation_service.repo.get_by_order(
         service.store.id, order_id,
@@ -149,7 +147,6 @@ async def get_order_reservations(
     return [
         {
             "id": r.id,
-            "warehouse_id": r.warehouse_id,
             "variant_id": r.variant_id,
             "quantity": r.quantity,
             "status": r.status.value if hasattr(r.status, 'value') else str(r.status),
@@ -274,7 +271,7 @@ async def order_dashboard(
         },
         "allocation": {
             "allocation_strategy": allocation_stats.get("allocation_strategy", ""),
-            "multi_warehouse_enabled": allocation_stats.get("multi_warehouse_enabled", False),
-            "total_warehouses": allocation_stats.get("total_warehouses", 0),
+            "total_allocated_units": allocation_stats.get("total_allocated_units", 0),
+            "orders_allocated": allocation_stats.get("orders_allocated", 0),
         },
     }

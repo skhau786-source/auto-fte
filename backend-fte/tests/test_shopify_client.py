@@ -10,7 +10,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 import httpx
 
-from app.inventory.shopify_client import (
+from app.shopify.shopify_client import (
     ShopifyClient,
     ShopifySyncError,
     MAX_RETRIES,
