@@ -408,3 +408,39 @@ export const webhookApi = {
       `/woocommerce/stores/${storeId}/webhooks/register?callback_url=${encodeURIComponent(callbackUrl)}`
     ),
 };
+
+// ─── Shopify (business-facing connection status only) ───
+
+export interface ShopifyStatus {
+  connected: boolean;
+  shopify_domain: string | null;
+  shopify_store_id: number | null;
+  shopify_location_id: number | null;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
+export interface ShopifyInventorySnapshot {
+  total_products: number;
+  total_variants: number;
+  total_inventory_units: number;
+  total_inventory_value: string;
+  low_stock_count: number;
+  out_of_stock_count: number;
+  pending_syncs: number;
+  failed_syncs: number;
+  last_sync_at: string | null;
+  last_sync_status: string | null;
+}
+
+export const shopifyApi = {
+  /** Connection status of the authenticated user's Shopify store. */
+  status: () => apiGet<ShopifyStatus>("/shopify/status"),
+  /** Aggregate inventory snapshot for the Shopify store. */
+  inventory: () => apiGet<ShopifyInventorySnapshot>("/shopify/inventory"),
+  /** Connect a Shopify store (domain + access token from the Shopify admin). */
+  connect: (data: { shop_domain: string; access_token: string }) =>
+    apiPost<{ message: string; store: unknown; verification: unknown }>("/shopify/connect", data),
+  /** Trigger a product/inventory update from Shopify. */
+  sync: () => apiPost<{ status: string; store_id: string; results: unknown }>("/shopify/sync"),
+};
