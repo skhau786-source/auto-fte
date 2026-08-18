@@ -1,0 +1,12 @@
+client_id = "63086aa6ff27b1cebf73973d004167cd"
+embedded = true
+name = "Digital Fte"
+application_url = "https://metabolism-camp-independently-transition.trycloudflare.com"
+[access_scopes]
+scopes = "read_inventory,read_products"
+optional_scopes = [ ]
+use_legacy_install_flow = false
+[auth]
+redirect_urls = [ "https://metabolism-camp-independently-transition.trycloudflare.com/shopify/callback" ]
+[webhooks]
+api_version = "2026-07"

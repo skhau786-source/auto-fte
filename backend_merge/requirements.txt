@@ -1,0 +1,15 @@
+fastapi
+uvicorn[standard]
+sqlalchemy
+psycopg2-binary
+pydantic
+pydantic-settings
+python-dotenv
+httpx
+bcrypt
+PyJWT
+email-validator
+google-auth
+requests
+huggingface_hub==0.26.2
+pillow
