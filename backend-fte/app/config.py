@@ -22,6 +22,14 @@ class Settings(BaseSettings):
     INSTAGRAM_APP_SECRET: str
     INSTAGRAM_REDIRECT_URI: str
     GRAPH_API_VERSION: str = "v21.0"
+    INSTAGRAM_WEBHOOK_VERIFY_TOKEN: str = "digital_fte_secret_token"
+
+    # SMTP Email Notifications
+    SMTP_HOST: str = "smtp.gmail.com"
+    SMTP_PORT: int = 587
+    SMTP_USER: str = ""
+    SMTP_PASSWORD: str = ""
+    EMAILS_FROM_EMAIL: str = ""
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 

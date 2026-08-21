@@ -25,14 +25,17 @@ IMAGES_DIR = Path("static/generated_images")
 IMAGES_DIR.mkdir(parents=True, exist_ok=True)
 
 
-async def generate_caption(prompt: str) -> str:
+async def generate_caption(prompt: str, system_prompt: str | None = None) -> str:
+    default_sys = "You write short, catchy Instagram captions with relevant hashtags for e-commerce brands."
+    sys_content = system_prompt if system_prompt else default_sys
+
     headers = {"Authorization": f"Bearer {settings.GROQ_API_KEY}", "Content-Type": "application/json"}
     payload = {
         "model": "llama-3.3-70b-versatile",
         "messages": [
             {
                 "role": "system",
-                "content": "You write short, catchy Instagram captions with relevant hashtags for e-commerce brands.",
+                "content": sys_content,
             },
             {"role": "user", "content": prompt},
         ],
@@ -49,8 +52,15 @@ async def generate_caption(prompt: str) -> str:
     return data["choices"][0]["message"]["content"].strip()
 
 
-async def generate_image(prompt: str, model: str = "sdxl") -> str:
+async def generate_image(prompt: str, model: str = "sdxl", aspect_ratio: str = "1:1") -> str:
     model_id = HF_MODELS.get(model, HF_MODELS["sdxl"])
+
+    dimensions = {
+        "1:1": (1024, 1024),
+        "9:16": (768, 1344),
+        "4:5": (896, 1120),
+    }
+    target_width, target_height = dimensions.get(aspect_ratio, (1024, 1024))
 
     # Add quality-boosting keywords automatically to every prompt
     enhanced_prompt = (
@@ -65,7 +75,7 @@ async def generate_image(prompt: str, model: str = "sdxl") -> str:
                 enhanced_prompt,
                 model=model_id,
                 negative_prompt="blurry, low quality, distorted, watermark, text, deformed",
-                num_inference_steps=40,   # more steps = cleaner image (default is often 20-25)
+                num_inference_steps=40,   # more steps = cleaner image
                 guidance_scale=7.5,       # how strictly it follows the prompt
             ),
         )
@@ -73,7 +83,7 @@ async def generate_image(prompt: str, model: str = "sdxl") -> str:
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=f"Hugging Face error: {str(e)}")
 
     image = image.convert("RGB")
-    image.thumbnail((1024, 1024))
+    image = image.resize((target_width, target_height))
 
     filename = f"{uuid.uuid4().hex}.jpg"
     filepath = IMAGES_DIR / filename
@@ -82,7 +92,7 @@ async def generate_image(prompt: str, model: str = "sdxl") -> str:
     return f"static/generated_images/{filename}"
 
 async def save_generated_post(
-    db: AsyncSession, student_id, prompt: str, caption: str, image_path: str, image_model: str
+    db: AsyncSession, student_id, prompt: str, caption: str, image_path: str, image_model: str, aspect_ratio: str = "1:1"
 ) -> GeneratedPost:
     post = GeneratedPost(
         student_id=student_id,
@@ -90,6 +100,7 @@ async def save_generated_post(
         caption=caption,
         image_path=image_path,
         image_model=image_model,
+        aspect_ratio=aspect_ratio,
         status="draft",
     )
     db.add(post)

@@ -1,0 +1,55 @@
+"""init
+
+Revision ID: 694d38b99c0b
+Revises: 
+Create Date: 2026-07-15 17:42:45.346116
+
+"""
+from alembic import op
+import sqlalchemy as sa
+from sqlalchemy.dialects import postgresql
+
+revision = '694d38b99c0b'
+down_revision = None
+branch_labels = None
+depends_on = None
+
+
+def upgrade() -> None:
+    op.create_table('registered_students',
+    sa.Column('id', sa.UUID(), nullable=False),
+    sa.Column('username', sa.String(length=50), nullable=False),
+    sa.Column('email', sa.String(length=255), nullable=False),
+    sa.Column('full_name', sa.String(length=150), nullable=True),
+    sa.Column('hashed_password', sa.String(length=255), nullable=True),
+    sa.Column('auth_provider', sa.Enum('LOCAL', 'GOOGLE', name='auth_provider_enum'), nullable=False),
+    sa.Column('google_id', sa.String(length=255), nullable=True),
+    sa.Column('is_active', sa.Boolean(), nullable=False),
+    sa.Column('is_verified', sa.Boolean(), nullable=False),
+    sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
+    sa.Column('updated_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
+    sa.PrimaryKeyConstraint('id'),
+    sa.UniqueConstraint('google_id')
+    )
+    op.create_index(op.f('ix_registered_students_email'), 'registered_students', ['email'], unique=True)
+    op.create_index(op.f('ix_registered_students_username'), 'registered_students', ['username'], unique=True)
+    op.create_table('login_users',
+    sa.Column('id', sa.UUID(), nullable=False),
+    sa.Column('student_id', sa.UUID(), nullable=False),
+    sa.Column('login_method', sa.Enum('LOCAL', 'GOOGLE', name='login_method_enum'), nullable=False),
+    sa.Column('ip_address', postgresql.INET(), nullable=True),
+    sa.Column('user_agent', sa.String(length=500), nullable=True),
+    sa.Column('session_token_expires_at', sa.DateTime(timezone=True), nullable=False),
+    sa.Column('logged_in_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
+    sa.ForeignKeyConstraint(['student_id'], ['registered_students.id'], ondelete='CASCADE'),
+    sa.PrimaryKeyConstraint('id')
+    )
+    op.create_index(op.f('ix_login_users_student_id'), 'login_users', ['student_id'], unique=False)
+
+
+def downgrade() -> None:
+    op.drop_index(op.f('ix_login_users_student_id'), table_name='login_users')
+    op.drop_table('login_users')
+    op.drop_index(op.f('ix_registered_students_username'), table_name='registered_students')
+    op.drop_index(op.f('ix_registered_students_email'), table_name='registered_students')
+    op.drop_table('registered_students')
