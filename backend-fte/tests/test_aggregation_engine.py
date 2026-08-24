@@ -231,3 +231,37 @@ class TestCache:
         count = await aggregation_cache.invalidate_store(store_id)
         assert count >= 1
         assert await aggregation_cache.get(f"agg:store:{store_id}") is None
+
+    @pytest.mark.asyncio
+    async def test_invalidate_store_clears_all_key_types(self):
+        """invalidate_store clears store, dashboard, reports, product AND variant keys."""
+        store_id = uuid.uuid4()
+        product_id = uuid.uuid4()
+        variant_id = uuid.uuid4()
+        await aggregation_cache.clear()
+        await aggregation_cache.set(f"agg:store:{store_id}", {"data": 1})
+        await aggregation_cache.set(f"agg:dashboard:{store_id}", {"data": 2})
+        await aggregation_cache.set(f"agg:reports:{store_id}", {"data": 3})
+        await aggregation_cache.set(f"agg:product:{store_id}:{product_id}", {"data": 4})
+        await aggregation_cache.set(f"agg:variant:{store_id}:{variant_id}", {"data": 5})
+
+        count = await aggregation_cache.invalidate_store(store_id)
+        assert count == 5
+        assert await aggregation_cache.get(f"agg:store:{store_id}") is None
+        assert await aggregation_cache.get(f"agg:dashboard:{store_id}") is None
+        assert await aggregation_cache.get(f"agg:reports:{store_id}") is None
+        assert await aggregation_cache.get(f"agg:product:{store_id}:{product_id}") is None
+        assert await aggregation_cache.get(f"agg:variant:{store_id}:{variant_id}") is None
+
+    @pytest.mark.asyncio
+    async def test_invalidate_store_keeps_other_stores(self):
+        """Invalidating one store must not clear another store's entries."""
+        store_a, store_b = uuid.uuid4(), uuid.uuid4()
+        variant_b_key = f"agg:variant:{store_b}:{uuid.uuid4()}"
+        await aggregation_cache.clear()
+        await aggregation_cache.set(f"agg:store:{store_b}", {"data": "B"})
+        await aggregation_cache.set(variant_b_key, {"data": "Bv"})
+
+        await aggregation_cache.invalidate_store(store_a)
+        assert await aggregation_cache.get(f"agg:store:{store_b}") == {"data": "B"}
+        assert await aggregation_cache.get(variant_b_key) == {"data": "Bv"}

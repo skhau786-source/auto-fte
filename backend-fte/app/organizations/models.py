@@ -77,6 +77,11 @@ class Permission(str, enum.Enum):
     USERS_MANAGE = "users:manage"
     TEAMS_MANAGE = "teams:manage"
 
+    # AI Agents
+    AGENT_MANAGE = "agent:manage"
+    AGENT_EXECUTE = "agent:execute"
+    AGENT_APPROVE = "agent:approve"
+
 
 # ═══════════════════════════════════════════════════════════════════
 # DEFAULT ROLE PERMISSIONS
@@ -103,6 +108,9 @@ DEFAULT_ROLE_PERMISSIONS: dict[str, list[str]] = {
         Permission.AUDIT_READ.value,
         Permission.AUDIT_EXPORT.value,
         Permission.USERS_INVITE.value,
+        Permission.AGENT_MANAGE.value,
+        Permission.AGENT_EXECUTE.value,
+        Permission.AGENT_APPROVE.value,
     ],
     MembershipRole.OPERATOR.value: [
         Permission.INVENTORY_READ.value,
@@ -116,6 +124,7 @@ DEFAULT_ROLE_PERMISSIONS: dict[str, list[str]] = {
         Permission.EXPORT_DOWNLOAD.value,
         Permission.ADMIN_QUEUE_VIEW.value,
         Permission.ADMIN_STATS.value,
+        Permission.AGENT_EXECUTE.value,
     ],
     MembershipRole.VIEWER.value: [
         Permission.INVENTORY_READ.value,

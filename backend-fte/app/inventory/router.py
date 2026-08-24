@@ -186,6 +186,80 @@ async def search_products(
 
 
 # ═══════════════════════════════════════════════════════════════════
+# LOW STOCK
+# ═══════════════════════════════════════════════════════════════════
+
+@router.get(
+    "/low-stock",
+    response_model=LowStockListOut,
+    summary="Get low stock items",
+    description="Returns all variants where inventory quantity is at or below the threshold.",
+)
+async def get_low_stock(
+    threshold: int = Query(10, ge=0, description="Low-stock threshold"),
+    page: int = Query(1, ge=1, description="Page number"),
+    page_size: int = Query(50, ge=1, le=200, description="Items per page"),
+    service: InventoryService = Depends(_get_inventory_service),
+):
+    """Get all variants with low stock."""
+    items, total = await service.get_low_stock(
+        threshold=threshold,
+        page=page,
+        page_size=page_size,
+    )
+    return LowStockListOut(items=items, total=total)
+
+
+# ═══════════════════════════════════════════════════════════════════
+# TRANSACTION HISTORY
+# ═══════════════════════════════════════════════════════════════════
+
+@router.get(
+    "/history",
+    response_model=InventoryHistoryOut,
+    summary="Get inventory transaction history",
+    description="Returns a paginated audit trail of all inventory changes for the store.",
+)
+async def get_history(
+    variant_id: Optional[uuid.UUID] = Query(None, description="Filter by variant"),
+    transaction_type: Optional[str] = Query(None, description="Filter by type (adjustment, sale, purchase, return, transfer, shopify_sync)"),
+    date_from: Optional[str] = Query(None, description="Start date (ISO 8601, e.g. 2026-01-01T00:00:00Z)"),
+    date_to: Optional[str] = Query(None, description="End date (ISO 8601)"),
+    page: int = Query(1, ge=1, description="Page number"),
+    page_size: int = Query(20, ge=1, le=100, description="Items per page"),
+    service: InventoryService = Depends(_get_inventory_service),
+):
+    """Get paginated inventory transaction history."""
+    # Parse ISO date strings to datetime if provided
+    try:
+        dt_from = datetime.fromisoformat(date_from.replace("Z", "+00:00")) if date_from else None
+        dt_to = datetime.fromisoformat(date_to.replace("Z", "+00:00")) if date_to else None
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={
+                "message": "Invalid date format. Use ISO 8601, e.g. 2026-01-01T00:00:00Z",
+                "error_code": "INVALID_DATE_FORMAT",
+            },
+        )
+
+    transactions, total = await service.get_history(
+        variant_id=variant_id,
+        transaction_type=transaction_type,
+        date_from=dt_from,
+        date_to=dt_to,
+        page=page,
+        page_size=page_size,
+    )
+    return InventoryHistoryOut(
+        items=[InventoryTransactionOut.model_validate(t) for t in transactions],
+        total=total,
+        page=page,
+        page_size=page_size,
+    )
+
+
+# ═══════════════════════════════════════════════════════════════════
 # GET SINGLE PRODUCT
 # ═══════════════════════════════════════════════════════════════════
 
@@ -312,68 +386,3 @@ async def update_stock(
         _handle_inventory_error(exc)
 
     return InventoryAdjustResponse(**result)
-
-
-# ═══════════════════════════════════════════════════════════════════
-# LOW STOCK
-# ═══════════════════════════════════════════════════════════════════
-
-@router.get(
-    "/low-stock",
-    response_model=LowStockListOut,
-    summary="Get low stock items",
-    description="Returns all variants where inventory quantity is at or below the threshold.",
-)
-async def get_low_stock(
-    threshold: int = Query(10, ge=0, description="Low-stock threshold"),
-    page: int = Query(1, ge=1, description="Page number"),
-    page_size: int = Query(50, ge=1, le=200, description="Items per page"),
-    service: InventoryService = Depends(_get_inventory_service),
-):
-    """Get all variants with low stock."""
-    items, total = await service.get_low_stock(
-        threshold=threshold,
-        page=page,
-        page_size=page_size,
-    )
-    return LowStockListOut(items=items, total=total)
-
-
-# ═══════════════════════════════════════════════════════════════════
-# TRANSACTION HISTORY
-# ═══════════════════════════════════════════════════════════════════
-
-@router.get(
-    "/history",
-    response_model=InventoryHistoryOut,
-    summary="Get inventory transaction history",
-    description="Returns a paginated audit trail of all inventory changes for the store.",
-)
-async def get_history(
-    variant_id: Optional[uuid.UUID] = Query(None, description="Filter by variant"),
-    transaction_type: Optional[str] = Query(None, description="Filter by type (adjustment, sale, purchase, return, transfer, shopify_sync)"),
-    date_from: Optional[str] = Query(None, description="Start date (ISO 8601, e.g. 2026-01-01T00:00:00Z)"),
-    date_to: Optional[str] = Query(None, description="End date (ISO 8601)"),
-    page: int = Query(1, ge=1, description="Page number"),
-    page_size: int = Query(20, ge=1, le=100, description="Items per page"),
-    service: InventoryService = Depends(_get_inventory_service),
-):
-    """Get paginated inventory transaction history."""
-    # Parse ISO date strings to datetime if provided
-    dt_from = datetime.fromisoformat(date_from.replace("Z", "+00:00")) if date_from else None
-    dt_to = datetime.fromisoformat(date_to.replace("Z", "+00:00")) if date_to else None
-
-    transactions, total = await service.get_history(
-        variant_id=variant_id,
-        transaction_type=transaction_type,
-        date_from=dt_from,
-        date_to=dt_to,
-        page=page,
-        page_size=page_size,
-    )
-    return InventoryHistoryOut(
-        items=[InventoryTransactionOut.model_validate(t) for t in transactions],
-        total=total,
-        page=page,
-        page_size=page_size,
-    )

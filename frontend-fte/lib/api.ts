@@ -22,13 +22,32 @@ const apiClient: AxiosInstance = axios.create({
   },
 });
 
+// ─── Token helpers ───
+
+export const tokenStore = {
+  get: (): string | null =>
+    typeof window !== "undefined" ? localStorage.getItem("access_token") : null,
+  set: (token: string): void => {
+    if (typeof window !== "undefined") localStorage.setItem("access_token", token);
+  },
+  clear: (): void => {
+    if (typeof window !== "undefined") localStorage.removeItem("access_token");
+  },
+};
+
+/** True when an error is a 401 — the session expired or the token is invalid. */
+export function isUnauthorized(err: unknown): boolean {
+  return (
+    (err as { status?: number })?.status === 401 ||
+    (err as { response?: { status?: number } })?.response?.status === 401
+  );
+}
+
 // Request interceptor: attach JWT token
 apiClient.interceptors.request.use((config) => {
-  if (typeof window !== "undefined") {
-    const token = localStorage.getItem("access_token");
-    if (token) {
-      config.headers.Authorization = `Bearer ${token}`;
-    }
+  const token = tokenStore.get();
+  if (token) {
+    config.headers.Authorization = `Bearer ${token}`;
   }
   return config;
 });
@@ -36,13 +55,30 @@ apiClient.interceptors.request.use((config) => {
 // Response interceptor: standardized error handling
 apiClient.interceptors.response.use(
   (response) => response,
-  (error: AxiosError<{ detail?: string; message?: string }>) => {
+  (error: AxiosError<{ detail?: unknown; message?: string }>) => {
+    // Expired/invalid session — drop the token and notify the app so it
+    // can redirect to the login screen.
+    if (error.response?.status === 401) {
+      tokenStore.clear();
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(new Event("auth:unauthorized"));
+      }
+    }
+    // Backend errors come in two shapes: a plain string detail (auth) or a
+    // { message, error_code } object (inventory/woocommerce/shopify).
+    const rawDetail = error.response?.data?.detail;
+    const detailMessage =
+      typeof rawDetail === "string"
+        ? rawDetail
+        : (rawDetail as { message?: string } | undefined)?.message;
     const message =
-      error.response?.data?.detail ||
-      error.response?.data?.message ||
-      error.message ||
-      "An unexpected error occurred";
-    return Promise.reject(new Error(message));
+      detailMessage || error.response?.data?.message || error.message || "An unexpected error occurred";
+    // Keep the HTTP status and machine error code so callers can react
+    // to 401s and to specific business states (e.g. no store connected).
+    const err = new Error(message) as Error & { status?: number; errorCode?: string };
+    err.status = error.response?.status;
+    err.errorCode = (rawDetail as { error_code?: string } | undefined)?.error_code;
+    return Promise.reject(err);
   }
 );
 
@@ -79,12 +115,36 @@ async function apiDelete<T>(path: string): Promise<T> {
 
 // ─── Auth ───
 
+export interface AuthUser {
+  id: string;
+  username: string;
+  email: string;
+  full_name: string | null;
+  auth_provider: string;
+  is_verified: boolean;
+  created_at: string;
+}
+
+export interface AuthResponse {
+  message: string;
+  user: AuthUser;
+  access_token: string | null;
+  token_type: string;
+}
+
+export interface SignupRequest {
+  username: string;
+  email: string;
+  password: string;
+  full_name?: string;
+}
+
 export const authApi = {
   login: (email: string, password: string) =>
-    apiPost<{ access_token: string; token_type: string }>("/auth/login", { email, password }),
-  register: (data: { username: string; email: string; password: string; full_name?: string }) =>
-    apiPost<{ id: string; email: string }>("/auth/register", data),
-  me: () => apiGet<{ id: string; email: string; username: string }>("/auth/me"),
+    apiPost<AuthResponse>("/auth/login", { email, password }),
+  signup: (data: SignupRequest) => apiPost<AuthResponse>("/auth/signup", data),
+  google: (idToken: string) => apiPost<AuthResponse>("/auth/google", { id_token: idToken }),
+  me: () => apiGet<AuthResponse>("/auth/me"),
 };
 
 // ─── WooCommerce Stores ───
@@ -444,3 +504,446 @@ export const shopifyApi = {
   /** Trigger a product/inventory update from Shopify. */
   sync: () => apiPost<{ status: string; store_id: string; results: unknown }>("/shopify/sync"),
 };
+
+// ─── Core Inventory (store-scoped) ───
+
+export interface InventoryVariant {
+  id: string;
+  product_id: string;
+  shopify_variant_id: number | null;
+  shopify_inventory_item_id: number | null;
+  title: string;
+  sku: string | null;
+  barcode: string | null;
+  price: number;
+  compare_at_price: number | null;
+  inventory_quantity: number;
+  requires_shipping: boolean;
+  low_stock_threshold: number | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface InventoryProduct {
+  id: string;
+  store_id: string;
+  category_id: string | null;
+  shopify_product_id: number | null;
+  title: string;
+  description: string | null;
+  vendor: string | null;
+  product_type: string | null;
+  status: string;
+  featured_image_url: string | null;
+  created_at: string;
+  updated_at: string;
+  last_synced_at: string | null;
+  variants: InventoryVariant[];
+}
+
+export interface InventoryListResponse {
+  items: InventoryProduct[];
+  total: number;
+  page: number;
+  page_size: number;
+  total_pages: number;
+}
+
+export interface InventoryProductCreate {
+  title: string;
+  description?: string;
+  vendor?: string;
+  product_type?: string;
+  status?: "active" | "archived" | "draft";
+  featured_image_url?: string;
+  variants?: {
+    title: string;
+    sku?: string;
+    price?: number;
+    inventory_quantity?: number;
+    low_stock_threshold?: number;
+  }[];
+}
+
+export interface StockAdjustRequest {
+  variant_id: string;
+  quantity_change: number;
+  reason?: string;
+}
+
+export interface StockAdjustResponse {
+  variant_id: string;
+  quantity_before: number;
+  quantity_after: number;
+  quantity_change: number;
+  transaction_id: string;
+  synced_to_shopify: boolean;
+  message: string;
+}
+
+export interface InventoryTransaction {
+  id: string;
+  variant_id: string;
+  transaction_type: string;
+  quantity_change: number;
+  quantity_before: number;
+  quantity_after: number;
+  reason: string | null;
+  reference_id: string | null;
+  performed_by: string | null;
+  synced_to_shopify: boolean;
+  created_at: string;
+}
+
+export interface InventoryHistoryResponse {
+  items: InventoryTransaction[];
+  total: number;
+  page: number;
+  page_size: number;
+}
+
+export interface LowStockItem {
+  variant_id: string;
+  variant_title: string;
+  sku: string | null;
+  product_title: string;
+  product_id: string;
+  inventory_quantity: number;
+  low_stock_threshold: number;
+  days_until_out: number | null;
+}
+
+export interface LowStockResponse {
+  items: LowStockItem[];
+  total: number;
+}
+
+export interface StoreAggregation {
+  store_id: string;
+  total_available_inventory: number;
+  total_reserved_inventory: number;
+  inventory_value: number;
+  product_count: number;
+  variant_count: number;
+  low_stock_variant_count: number;
+  out_of_stock_variant_count: number;
+  active_reservations_count: number;
+  generated_at: string;
+}
+
+export interface AggregationDashboard {
+  total_available_inventory: number;
+  total_reserved_inventory: number;
+  inventory_value: number;
+  low_stock_variants: number;
+  out_of_stock_variants: number;
+  active_reservations: number;
+  product_count: number;
+  variant_count: number;
+  store_id: string;
+}
+
+export interface VariantAggregation {
+  variant_id: string;
+  product_id: string;
+  sku: string | null;
+  title: string;
+  available_quantity: number;
+  reserved_quantity: number;
+  committed_quantity: number;
+  total_quantity: number;
+  low_stock_threshold: number;
+  status: "in_stock" | "low_stock" | "out_of_stock";
+  inventory_value: number;
+}
+
+export interface ProductAggregation {
+  product_id: string;
+  title: string;
+  store_id: string;
+  total_available_inventory: number;
+  total_reserved_inventory: number;
+  total_committed_inventory: number;
+  inventory_value: number;
+  variant_count: number;
+  variants: {
+    variant_id: string;
+    title: string;
+    sku: string | null;
+    available_quantity: number;
+    reserved_quantity: number;
+    inventory_value: number;
+  }[];
+}
+
+/** Core inventory management client — products, stock, aggregation. */
+export const coreInventoryApi = {
+  list: (params?: Record<string, string | number | boolean | undefined>) =>
+    apiGet<InventoryListResponse>("/inventory", params),
+  get: (productId: string) => apiGet<InventoryProduct>(`/inventory/${productId}`),
+  create: (data: InventoryProductCreate) => apiPost<InventoryProduct>("/inventory", data),
+  adjust: (data: StockAdjustRequest) => apiPost<StockAdjustResponse>("/inventory/update-stock", data),
+  lowStock: (params?: Record<string, string | number | boolean | undefined>) =>
+    apiGet<LowStockResponse>("/inventory/low-stock", params),
+  history: (params?: Record<string, string | number | boolean | undefined>) =>
+    apiGet<InventoryHistoryResponse>("/inventory/history", params),
+  aggregate: {
+    store: () => apiGet<StoreAggregation>("/inventory/aggregate/store"),
+    dashboard: () => apiGet<AggregationDashboard>("/inventory/aggregate/dashboard"),
+    product: (productId: string) =>
+      apiGet<ProductAggregation>(`/inventory/aggregate/product/${productId}`),
+    variant: (variantId: string) =>
+      apiGet<VariantAggregation>(`/inventory/aggregate/variant/${variantId}`),
+    reports: () => apiGet<Record<string, unknown>>("/inventory/aggregate/reports"),
+  },
+};
+
+// ─── Reservations ───
+
+export interface Reservation {
+  id: string;
+  store_id: string;
+  product_id: string;
+  variant_id: string;
+  order_id: string | null;
+  order_source: string | null;
+  quantity: number;
+  status: string;
+  expires_at: string | null;
+  created_at: string;
+  updated_at: string;
+  released_at: string | null;
+  committed_at: string | null;
+  metadata: Record<string, unknown> | null;
+}
+
+export interface ReservationListResponse {
+  items: Reservation[];
+  total: number;
+  page: number;
+  page_size: number;
+  active_count: number;
+}
+
+export interface ReservationActionResponse {
+  reservation_id: string;
+  status: string;
+  quantity: number;
+  message: string;
+}
+
+export const reservationApi = {
+  list: (params?: Record<string, string | number | boolean | undefined>) =>
+    apiGet<ReservationListResponse>("/reservations", params),
+  create: (data: { variant_id: string; quantity: number; order_id?: string; order_source?: string; expires_in_minutes?: number; reason?: string }) =>
+    apiPost<Reservation>("/reservations", data),
+  commit: (id: string) => apiPost<ReservationActionResponse>(`/reservations/${id}/commit`),
+  release: (id: string, quantity?: number) =>
+    apiPost<ReservationActionResponse>(`/reservations/${id}/release`, quantity ? { quantity } : undefined),
+  cancel: (id: string) => apiDelete<ReservationActionResponse>(`/reservations/${id}`),
+  dashboard: () => apiGet<Record<string, unknown>>("/reservations/dashboard"),
+};
+
+// ─── Allocations ───
+
+export interface AllocationSettings {
+  store_id: string;
+  auto_allocate_inventory: boolean;
+  allocation_strategy: string;
+  allow_negative_stock: boolean;
+  reserve_stock_on_order: boolean;
+  auto_release_cancelled_orders: boolean;
+  active_strategy: string;
+  available_strategies: { name: string; description?: string }[];
+}
+
+export interface AllocationSettingsUpdate {
+  auto_allocate_inventory?: boolean;
+  allocation_strategy?: string;
+  allow_negative_stock?: boolean;
+  reserve_stock_on_order?: boolean;
+  auto_release_cancelled_orders?: boolean;
+}
+
+export const allocationApi = {
+  settings: () => apiGet<AllocationSettings>("/allocation/settings"),
+  updateSettings: (data: AllocationSettingsUpdate) =>
+    apiPut<AllocationSettings>("/allocation/settings", data),
+  dashboard: () => apiGet<Record<string, unknown>>("/allocation/dashboard"),
+};
+
+// ─── Unified dashboard ───
+
+export interface UnifiedDashboard {
+  store_id: string;
+  generated_at: string;
+  inventory: {
+    total_products: number;
+    total_variants: number;
+    total_inventory_units: number;
+    total_inventory_value: number;
+    low_stock_count: number;
+    out_of_stock_count: number;
+    category_count: number;
+  };
+  reservation: {
+    active_reservations: number;
+    reserved_stock_units: number;
+    expired_today: number;
+    reservation_success_rate: number;
+    reservations_by_source: Record<string, number>;
+  };
+  allocation: {
+    allocation_strategy: string;
+    total_allocated_units: number;
+    active_reservations: number;
+    orders_allocated: number;
+    allocation_success_rate: number;
+  };
+  order_integration: {
+    orders_waiting_allocation: number;
+    reserved_orders: number;
+    partially_fulfilled_orders: number;
+    committed_orders: number;
+    released_reservations: number;
+    allocation_success_rate: number;
+    reservation_success_rate: number;
+  };
+  aggregation: {
+    total_available_inventory: number;
+    total_reserved_inventory: number;
+    inventory_value: number;
+    low_stock_variants: number;
+    out_of_stock_variants: number;
+    active_reservations_count: number;
+  };
+}
+
+export const unifiedApi = {
+  get: () => apiGet<UnifiedDashboard>("/dashboard/unified"),
+};
+
+// ─── AI Agents ───
+
+export interface AIAgent {
+  id: string;
+  organization_id: string;
+  name: string;
+  description: string | null;
+  agent_type: string;
+  status: string;
+  config: Record<string, unknown> | null;
+  granted_permissions: string[] | null;
+  is_active: boolean;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+  task_count: number;
+  active_task_count: number;
+}
+
+export interface AIAgentListResponse {
+  items: AIAgent[];
+  total: number;
+}
+
+export interface AITask {
+  id: string;
+  agent_id: string;
+  organization_id: string;
+  task_type: string;
+  status: string;
+  input_data: Record<string, unknown> | null;
+  output_data: Record<string, unknown> | null;
+  error_message: string | null;
+  requires_human_approval: boolean;
+  approved_by: string | null;
+  approved_at: string | null;
+  rejection_reason: string | null;
+  submitted_by: string | null;
+  execution_started_at: string | null;
+  execution_completed_at: string | null;
+  execution_duration_ms: number | null;
+  llm_provider: string | null;
+  llm_model: string | null;
+  llm_tokens_used: number | null;
+  parent_task_id: string | null;
+  source_agent_id: string | null;
+  target_agent_id: string | null;
+  capability_name: string | null;
+  handoff_depth: number;
+  metadata: Record<string, unknown> | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AITaskListResponse {
+  items: AITask[];
+  total: number;
+  pending_approval_count: number;
+}
+
+export interface AIAgentAction {
+  id: string;
+  agent_id: string;
+  task_id: string | null;
+  organization_id: string;
+  action_type: string;
+  target_resource: string | null;
+  target_id: string | null;
+  result_status: string;
+  details: Record<string, unknown> | null;
+  performed_by: string | null;
+  created_at: string;
+}
+
+export const agentApi = {
+  // Agent CRUD
+  list: () => apiGet<AIAgentListResponse>("/ai/agents"),
+  get: (id: string) => apiGet<AIAgent>(`/ai/agents/${id}`),
+  create: (data: { name: string; agent_type?: string; description?: string; config?: Record<string, unknown> }) =>
+    apiPost<AIAgent>("/ai/agents", data),
+  update: (id: string, data: { name?: string; description?: string; agent_type?: string; config?: Record<string, unknown> }) =>
+    apiClient.patch<AIAgent>(`/ai/agents/${id}`, data).then((r) => r.data),
+  deactivate: (id: string) => apiDelete<{ message: string }>(`/ai/agents/${id}`),
+
+  // Tasks
+  submitTask: (agentId: string, data: { task_type?: string; input_data?: Record<string, unknown>; requires_human_approval?: boolean }) =>
+    apiPost<AITask>(`/ai/agents/${agentId}/tasks`, data),
+  listTasks: (agentId: string, params?: { status?: string }) =>
+    apiGet<AITaskListResponse>(`/ai/agents/${agentId}/tasks`, params as Record<string, string | number | boolean | undefined>),
+  getTask: (taskId: string) => apiGet<AITask>(`/ai/tasks/${taskId}`),
+  approveTask: (taskId: string, reason?: string) =>
+    apiPost<AITask>(`/ai/tasks/${taskId}/approve`, reason ? { reason } : undefined),
+  rejectTask: (taskId: string, reason?: string) =>
+    apiPost<AITask>(`/ai/tasks/${taskId}/reject`, reason ? { reason } : undefined),
+
+  // Audit
+  listActions: (params?: { agent_id?: string; task_id?: string }) =>
+    apiGet<{ items: AIAgentAction[]; total: number }>("/ai/actions", params as Record<string, string | number | boolean | undefined>),
+
+  // Capabilities
+  listCapabilities: (params?: { category?: string; agent_type?: string }) =>
+    apiGet<{ items: AICapability[]; total: number }>("/ai/capabilities", params as Record<string, string | number | boolean | undefined>),
+
+  // Execute capability
+  executeCapability: (taskId: string, capabilityName: string) =>
+    apiPost<{ capability: string; status: string; result?: Record<string, unknown> }>(
+      `/ai/tasks/${taskId}/execute?capability_name=${encodeURIComponent(capabilityName)}`
+    ),
+
+  // Handoff
+  handoffTask: (taskId: string, data: { target_agent_id: string; capability_name?: string; input_data?: Record<string, unknown> }) =>
+    apiPost<AITask>(`/ai/tasks/${taskId}/handoff`, data),
+};
+
+// AI Capability type
+export interface AICapability {
+  name: string;
+  display_name: string;
+  description: string;
+  capability_type: string;
+  category: string;
+  requires_approval: boolean;
+  supported_agent_types: string[];
+}

@@ -144,13 +144,19 @@ class InventoryAggregationCache:
         Invalidate ALL cache entries for a store.
 
         This is called whenever any inventory-changing operation occurs
-        (reservation, allocation, sync, manual update).
+        (reservation, allocation, sync, manual update, product CRUD).
+
+        Clears:
+        - agg:store:{store_id}        (store-level totals)
+        - agg:dashboard:{store_id}    (dashboard widget summary)
+        - agg:product:{store_id}:*    (per-product aggregates)
+        - agg:variant:{store_id}:*    (per-variant aggregates)
+        - agg:reports:{store_id}      (report data)
 
         Returns count of cleared entries.
         """
-        prefix = f"agg:store:{store_id}:"
-        count = await self.clear_prefix(prefix)
-        # Also clear store-level and dashboard entries
+        count = await self.clear_prefix(f"agg:product:{store_id}:")
+        count += await self.clear_prefix(f"agg:variant:{store_id}:")
         count += await self.delete(f"agg:store:{store_id}")
         count += await self.delete(f"agg:dashboard:{store_id}")
         count += await self.delete(f"agg:reports:{store_id}")

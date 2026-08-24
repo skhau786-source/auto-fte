@@ -116,6 +116,7 @@ class InventoryService:
 
         await self.db.commit()
         await self.db.refresh(product, attribute_names=["variants"])
+        await self._invalidate_cache()
         return product
 
     async def get_product(self, product_id: uuid.UUID) -> Product:
@@ -164,6 +165,7 @@ class InventoryService:
 
         await self.db.commit()
         await self.db.refresh(product, attribute_names=["variants"])
+        await self._invalidate_cache()
         return product
 
     async def delete_product(self, product_id: uuid.UUID) -> dict:
@@ -185,6 +187,7 @@ class InventoryService:
         # The service caller can know deletion happened.
 
         await self.db.commit()
+        await self._invalidate_cache()
         return {
             "message": f"Product '{title}' deleted successfully",
             "deleted_product_id": product_id,
@@ -296,6 +299,7 @@ class InventoryService:
         # ── Commit local changes FIRST (before any external API call) ──
         if commit:
             await self.db.commit()
+            await self._invalidate_cache()
 
         # ── Attempt Shopify sync (best-effort — local state is already persisted) ──
         try:
@@ -372,6 +376,7 @@ class InventoryService:
 
         # Single commit for all successful adjustments in the batch
         await self.db.commit()
+        await self._invalidate_cache()
 
         return results
 
@@ -430,6 +435,7 @@ class InventoryService:
         )
 
         await self.db.commit()
+        await self._invalidate_cache()
         return variant
 
     # ═══════════════════════════════════════════════════════════════
@@ -603,13 +609,7 @@ class InventoryService:
 
         await self.db.commit()
 
-        # Invalidate aggregation cache after Shopify sync
-        try:
-            await aggregation_cache.invalidate_store(self.store.id)
-        except Exception as cache_exc:
-            self.logger.warning(
-                "Cache invalidation failed after Shopify sync: %s", cache_exc,
-            )
+        await self._invalidate_cache()  # Shopify sync
 
         stats["message"] = (
             f"Synced {stats['products_created'] + stats['products_updated']} "
@@ -706,13 +706,7 @@ class InventoryService:
 
         await self.db.commit()
 
-        # Invalidate aggregation cache after webhook inventory update
-        try:
-            await aggregation_cache.invalidate_store(self.store.id)
-        except Exception as cache_exc:
-            self.logger.warning(
-                "Cache invalidation failed after webhook: %s", cache_exc,
-            )
+        await self._invalidate_cache()  # webhook inventory update
 
         self.logger.info(
             "Inventory webhook: variant %s updated %d → %d (delta=%d)",
@@ -813,13 +807,7 @@ class InventoryService:
 
         await self.db.commit()
 
-        # Invalidate aggregation cache after product webhook update
-        try:
-            await aggregation_cache.invalidate_store(self.store.id)
-        except Exception as cache_exc:
-            self.logger.warning(
-                "Cache invalidation failed after product webhook: %s", cache_exc,
-            )
+        await self._invalidate_cache()  # webhook product update
 
         self.logger.info(
             "Product webhook: product %d %s with %d variants",
@@ -858,6 +846,23 @@ class InventoryService:
     # ═══════════════════════════════════════════════════════════════
     # INTERNAL HELPERS
     # ═══════════════════════════════════════════════════════════════
+
+    async def _invalidate_cache(self) -> None:
+        """
+        Invalidate the aggregation cache for the current store.
+
+        Called after every inventory-affecting mutation so aggregate
+        endpoints and dashboards never serve stale values (store, dashboard,
+        product, variant and report entries are all cleared). Failures are
+        logged and swallowed — the cache self-heals via its TTL.
+        """
+        try:
+            await aggregation_cache.invalidate_store(self.store.id)
+        except Exception as cache_exc:
+            self.logger.warning(
+                "Aggregation cache invalidation failed for store %s: %s",
+                self.store.id, cache_exc,
+            )
 
     def _ensure_store_owns_product(self, product: Product) -> None:
         """Raise if the product does not belong to the current store."""

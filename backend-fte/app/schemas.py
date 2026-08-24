@@ -42,5 +42,16 @@ class UserOut(BaseModel):
 
 
 class AuthResponse(BaseModel):
+    """
+    Authentication response.
+
+    Includes a signed JWT access token so the frontend can call the
+    protected business APIs (inventory, shopify, woocommerce, dashboard).
+    The token is created from the user ID and expires per
+    ACCESS_TOKEN_EXPIRE_MINUTES.
+    """
+
     message: str
     user: UserOut
+    access_token: str | None = None
+    token_type: str = "bearer"

@@ -28,7 +28,7 @@ from typing import Optional
 
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import joinedload
+from sqlalchemy.orm import joinedload, selectinload
 
 from app.models import Store, Product, ProductVariant, InventoryReservation
 from app.inventory.constants import ReservationStatus
@@ -379,7 +379,7 @@ class InventoryAggregationEngine:
     async def _get_product(self, product_id: uuid.UUID) -> Optional[Product]:
         result = await self.db.execute(
             select(Product)
-            .options(joinedload(Product.variants))
+            .options(selectinload(Product.variants))
             .where(Product.id == product_id)
         )
         return result.scalar_one_or_none()

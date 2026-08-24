@@ -390,6 +390,26 @@ class TestAdjustInventory:
         await assert_variant_quantity(service.db, test_variant.id, 110)
         assert result["synced_to_shopify"] is not None
 
+    async def test_adjust_inventory_invalidates_cache(
+        self, service: InventoryService, test_variant
+    ):
+        """adjust_inventory clears the store's aggregation cache (store + variant keys)."""
+        from app.inventory.aggregation_cache import aggregation_cache
+        await aggregation_cache.clear()
+        store_id = service.store.id
+        store_key = f"agg:store:{store_id}"
+        variant_key = f"agg:variant:{store_id}:{test_variant.id}"
+        await aggregation_cache.set(store_key, {"stale": True})
+        await aggregation_cache.set(variant_key, {"stale": True})
+
+        await service.adjust_inventory(
+            variant_id=test_variant.id,
+            quantity_change=10,
+            reason="Cache invalidation test",
+        )
+        assert await aggregation_cache.get(store_key) is None
+        assert await aggregation_cache.get(variant_key) is None
+
 
 # ═══════════════════════════════════════════════════════════════════
 # BULK ADJUST INVENTORY

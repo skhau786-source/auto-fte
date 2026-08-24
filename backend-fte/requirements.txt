@@ -8,6 +8,9 @@ pydantic-settings
 email-validator
 python-jose[cryptography]
 passlib[bcrypt]
+# passlib 1.7.4 is incompatible with bcrypt >= 4.1 (raises on hashing); pin a
+# compatible release so user passwords hash/verify correctly.
+bcrypt==4.0.1
 python-multipart
 google-auth
 httpx
@@ -19,6 +22,10 @@ locust
 celery>=5.4
 flower>=2.0
 cryptography>=41.0
+
+# AI / LLM
+openai>=1.0
+anthropic>=0.30
 
 # Testing
 pytest>=8.0

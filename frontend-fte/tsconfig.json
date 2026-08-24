@@ -21,8 +21,6 @@
     "noUnusedParameters": true,
     "noImplicitReturns": true,
     "skipLibCheck": true,
-    "ignoreDeprecations": "6.0",
-    "baseUrl": ".",
     "paths": {
       "@/*": [
         "./*"
@@ -42,6 +40,9 @@
     ".next/types/**/*.ts"
   ],
   "exclude": [
-    "node_modules"
+    "node_modules",
+    // Legacy WooCommerce dev dashboard — superseded by BusinessDashboard.tsx
+    // (not imported anywhere). Kept in the repo, excluded from the build.
+    "components/woocommerce"
   ]
 }

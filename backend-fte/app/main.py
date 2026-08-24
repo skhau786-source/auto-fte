@@ -53,6 +53,12 @@ from app.inventory.aggregation_router import router as aggregation_router
 # ── Unified Dashboard Routes (Phase 7) ──
 from app.dashboard.unified_router import router as unified_dashboard_router
 
+# ── Data Export Routes ──
+from app.export.export_router import router as export_router
+
+# ── AI Agent Routes (Phase 4) ──
+from app.ai.router import router as ai_router
+
 # ═══════════════════════════════════════════════════════════════════
 # Configure Logging
 # ═══════════════════════════════════════════════════════════════════
@@ -191,6 +197,12 @@ app.include_router(aggregation_router)
 # ── Unified Dashboard Routes (Phase 7) ──
 app.include_router(unified_dashboard_router)
 
+# ── Data Export Routes ──
+app.include_router(export_router)
+
+# ── AI Agent Routes (Phase 4) ──
+app.include_router(ai_router)
+
 
 # ═══════════════════════════════════════════════════════════════════
 # Monitoring Endpoints
@@ -291,8 +303,18 @@ async def metrics(request: Request):
 
 @app.on_event("startup")
 async def on_startup():
-    """Log when the application starts."""
+    """Log when the application starts and register AI capabilities."""
     init_metrics(version="1.0.0", environment=settings.ENV)
+
+    # Register AI agent capabilities
+    from app.ai.capabilities.inventory_capabilities import register_inventory_capabilities
+    from app.ai.capabilities.social_capabilities import register_social_capabilities
+    from app.ai.capabilities.sales_capabilities import register_sales_capabilities
+    register_inventory_capabilities()
+    register_social_capabilities()
+    register_sales_capabilities()
+    logger.info("AI agent capabilities registered")
+
     logger.info(
         "Application starting: %s | env=%s | debug=%s",
         settings.APP_NAME,

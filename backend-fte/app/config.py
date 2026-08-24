@@ -87,6 +87,15 @@ class Settings(BaseSettings):
     CELERY_RESULT_BACKEND: str = "redis://localhost:6379/1"
 
     # ═══════════════════════════════════════════════════════════════
+    # AI / LLM
+    # ═══════════════════════════════════════════════════════════════
+    OPENAI_API_KEY: str = ""
+    OPENAI_BASE_URL: str = ""
+    OPENAI_MODEL: str = "gpt-4o-mini"
+    ANTHROPIC_API_KEY: str = ""
+    ANTHROPIC_MODEL: str = "claude-sonnet-4-20250514"
+
+    # ═══════════════════════════════════════════════════════════════
     # CORS & Security
     # ═══════════════════════════════════════════════════════════════
     CORS_ORIGINS: str = "*"

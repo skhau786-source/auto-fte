@@ -26,7 +26,7 @@ from typing import Optional
 
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import joinedload
+from sqlalchemy.orm import joinedload, selectinload
 
 from app.models import Store, ProductVariant, InventoryReservation, InventoryLog
 from app.inventory.constants import (
@@ -413,7 +413,7 @@ class ReservationService:
         """Fetch a variant with FOR UPDATE + eager product for ownership checks."""
         result = await self.db.execute(
             select(ProductVariant)
-            .options(joinedload(ProductVariant.product))
+            .options(selectinload(ProductVariant.product))
             .where(ProductVariant.id == variant_id)
             .with_for_update()
         )

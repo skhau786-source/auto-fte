@@ -29,13 +29,13 @@ import {
   Menu,
   X,
   Search,
-  Link2,
   ShoppingBag,
   Globe,
   User,
   Mail,
   ExternalLink,
   Sparkles,
+  Boxes,
 } from "lucide-react";
 import {
   storeApi,
@@ -53,6 +53,8 @@ import {
   type ShopifyStatus,
   type ShopifyInventorySnapshot,
 } from "@/lib/api";
+import InventoryHub from "./InventoryHub";
+import AIAgentsHub from "./AIAgentsHub";
 
 // ═══════════════════════════════════════════════════════════════════
 // Helpers (plain language)
@@ -60,6 +62,8 @@ import {
 
 type TabId =
   | "dashboard"
+  | "inventory"
+  | "ai-agents"
   | "products"
   | "orders"
   | "stores"
@@ -195,6 +199,13 @@ export default function BusinessDashboard({ userEmail, onLogout }: BusinessDashb
     }
   }, []);
 
+  // If the session expires (401 anywhere), send the user back to login.
+  useEffect(() => {
+    const onUnauthorized = () => onLogout?.();
+    window.addEventListener("auth:unauthorized", onUnauthorized);
+    return () => window.removeEventListener("auth:unauthorized", onUnauthorized);
+  }, [onLogout]);
+
   useEffect(() => {
     loadStores();
     loadShopify();
@@ -207,9 +218,11 @@ export default function BusinessDashboard({ userEmail, onLogout }: BusinessDashb
 
   const navItems: { id: TabId; label: string; icon: React.ReactNode }[] = [
     { id: "dashboard", label: "Dashboard", icon: <LayoutDashboard className="w-5 h-5" /> },
+    { id: "inventory", label: "Inventory", icon: <Boxes className="w-5 h-5" /> },
+    { id: "ai-agents", label: "AI Agents", icon: <Sparkles className="w-5 h-5" /> },
     { id: "products", label: "Products & Inventory", icon: <Package className="w-5 h-5" /> },
     { id: "orders", label: "Orders", icon: <ShoppingCart className="w-5 h-5" /> },
-    { id: "stores", label: "My Stores", icon: <Store className="w-5 h-5" /> },
+    { id: "stores", label: "Store Connections", icon: <Store className="w-5 h-5" /> },
     { id: "reports", label: "Reports", icon: <BarChart3 className="w-5 h-5" /> },
     { id: "alerts", label: "Alerts", icon: <AlertTriangle className="w-5 h-5" /> },
     { id: "settings", label: "Settings", icon: <Settings className="w-5 h-5" /> },
@@ -265,9 +278,13 @@ export default function BusinessDashboard({ userEmail, onLogout }: BusinessDashb
             <span className="text-slate-400">{shopify?.connected ? "Connected" : "Not connected"}</span>
           </div>
           <div className="flex items-center gap-2 text-xs">
-            <span className={`w-2 h-2 rounded-full ${hasStores ? "bg-emerald-400" : "bg-slate-300"}`} />
+            <span className={`w-2 h-2 rounded-full ${stores.some((s) => s.status === "connected") ? "bg-emerald-400" : "bg-slate-300"}`} />
             <span className="font-semibold text-slate-600">WooCommerce</span>
-            <span className="text-slate-400">{hasStores ? `${stores.length} connected` : "Not connected"}</span>
+            <span className="text-slate-400">
+              {stores.some((s) => s.status === "connected")
+                ? `${stores.filter((s) => s.status === "connected").length} connected`
+                : "Not connected"}
+            </span>
           </div>
         </div>
 
@@ -319,11 +336,13 @@ export default function BusinessDashboard({ userEmail, onLogout }: BusinessDashb
             <div className="min-w-0">
               <h2 className="text-lg sm:text-xl font-extrabold text-slate-900 truncate">
                 {activeTab === "dashboard" && "📊 Dashboard"}
+                {activeTab === "inventory" && "📦 Inventory"}
                 {activeTab === "products" && "📦 Products & Inventory"}
                 {activeTab === "orders" && "🛒 Orders"}
-                {activeTab === "stores" && "🔗 My Stores"}
+                {activeTab === "stores" && "🔗 Store Connections"}
                 {activeTab === "reports" && "📊 Reports"}
                 {activeTab === "alerts" && "⚠️ Alerts"}
+                {activeTab === "ai-agents" && "🤖 AI Agents"}
                 {activeTab === "settings" && "⚙️ Settings"}
               </h2>
               <p className="text-xs sm:text-sm text-slate-500 truncate">
@@ -370,6 +389,12 @@ export default function BusinessDashboard({ userEmail, onLogout }: BusinessDashb
 
         {/* Pages */}
         <div className="flex-1 overflow-y-auto p-4 sm:p-6">
+          {activeTab === "inventory" && (
+            <InventoryHub onNavigateToStores={() => goTo("stores")} />
+          )}
+          {activeTab === "ai-agents" && (
+            <AIAgentsHub />
+          )}
           {activeTab === "dashboard" && (
             <DashboardPage
               storeId={selectedStoreId}
@@ -950,7 +975,7 @@ function OrdersPage({ storeId, hasStores, storesLoading, storeName }: {
 }
 
 // ═══════════════════════════════════════════════════════════════════
-// MY STORES PAGE
+// STORE CONNECTIONS PAGE
 // ═══════════════════════════════════════════════════════════════════
 
 function StoresPage({ stores, storesLoading, storesError, shopify, shopifyLoading, onRefresh }: {
@@ -964,11 +989,35 @@ function StoresPage({ stores, storesLoading, storesError, shopify, shopifyLoadin
   const [wooModal, setWooModal] = useState(false);
   const [shopifyModal, setShopifyModal] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [syncing, setSyncing] = useState(false);
   const [notice, setNotice] = useState<{ tone: "ok" | "err"; text: string } | null>(null);
+
+  // Sync products & inventory straight from the Shopify store.
+  const handleShopifySync = async () => {
+    setSyncing(true);
+    setNotice(null);
+    try {
+      await shopifyApi.sync();
+      setNotice({ tone: "ok", text: "Inventory synced with your Shopify store." });
+      await onRefresh();
+    } catch (err) {
+      setNotice({
+        tone: "err",
+        text: err instanceof Error ? err.message : "We couldn't sync with Shopify right now.",
+      });
+    } finally {
+      setSyncing(false);
+    }
+  };
 
   if (storesLoading || shopifyLoading) return <LoadingBlock />;
 
-  const wooCount = stores.length;
+  // Only stores that are actually connected count — integrations that are
+  // available but not connected are shown separately below.
+  const wooConnected = stores.filter((s) => s.status === "connected");
+  const wooInactive = stores.filter((s) => s.status !== "connected");
+  const connectedCount = (shopify?.connected ? 1 : 0) + wooConnected.length;
+  const hasAvailableIntegrations = !shopify?.connected || wooConnected.length === 0;
 
   return (
     <div className="space-y-6">
@@ -984,64 +1033,145 @@ function StoresPage({ stores, storesLoading, storesError, shopify, shopifyLoadin
         </div>
       )}
 
-      <div>
-        <h3 className="text-lg font-bold text-slate-900">My Stores</h3>
-        <p className="text-xs text-slate-500">
-          Connect the stores you sell on — everything else in your dashboard updates automatically.
-        </p>
+      {/* Heading + prominent connected-store count */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div>
+          <h3 className="text-lg font-bold text-slate-900">Store Connections</h3>
+          <p className="text-xs text-slate-500">
+            Connect the stores you sell on — everything else in your dashboard updates automatically.
+          </p>
+        </div>
+        <div className="inline-flex items-center gap-2.5 self-start sm:self-auto px-4 py-2 rounded-xl bg-emerald-50 border border-emerald-200 shadow-sm">
+          <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+          <span className="text-xs font-semibold text-slate-500">Connected Stores</span>
+          <span className="text-xl font-black text-emerald-700 leading-none">{connectedCount}</span>
+        </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-        {/* Shopify card */}
-        <StoreCard
-          platform="Shopify"
-          icon={<Globe className="w-6 h-6" />}
-          connected={shopify?.connected ?? false}
-          storeLabel={shopify?.shopify_domain ?? "Not connected"}
-          productCount={shopify?.inventory?.total_products}
-          lastSync={shopify?.inventory?.last_sync_at}
-          onConnect={() => setShopifyModal(true)}
-          connectLabel="Connect Shopify"
-          onRefresh={onRefresh}
-          connectedDetail={
-            shopify?.inventory
-              ? `🟢 ${shopify.inventory.low_stock_count} low · 🔴 ${shopify.inventory.out_of_stock_count} out of stock`
-              : undefined
-          }
-        />
+      {/* Connected stores */}
+      <section className="space-y-3">
+        <div className="flex items-center justify-between">
+          <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400">Connected Stores</h4>
+          {wooConnected.length > 0 && (
+            <button
+              onClick={() => setWooModal(true)}
+              className="text-xs font-bold text-violet-600 hover:text-violet-800 hover:underline transition-colors"
+            >
+              + Add WooCommerce store
+            </button>
+          )}
+        </div>
 
-        {/* WooCommerce cards */}
-        {wooCount === 0 ? (
-          <StoreCard
-            platform="WooCommerce"
-            icon={<ShoppingBag className="w-6 h-6" />}
-            connected={false}
-            storeLabel="Not connected"
-            productCount={undefined}
-            lastSync={null}
-            onConnect={() => setWooModal(true)}
-            connectLabel="Connect WooCommerce"
-            onRefresh={onRefresh}
+        {connectedCount === 0 ? (
+          <EmptyBlock
+            icon={<Store className="w-7 h-7" />}
+            title="No stores connected yet"
+            subtitle="Pick an integration below to start syncing your products, orders and stock levels."
           />
         ) : (
-          stores.map((s) => (
-            <StoreCard
-              key={s.id}
-              platform="WooCommerce"
-              icon={<ShoppingBag className="w-6 h-6" />}
-              connected={s.status === "connected"}
-              storeLabel={s.store_name}
-              storeUrl={s.store_url}
-              productCount={undefined}
-              lastSync={s.last_sync_at}
-              onConnect={() => setWooModal(true)}
-              connectLabel="Add Another Store"
-              onRefresh={onRefresh}
-              connectedDetail={s.status === "error" ? "There's a connection issue — click refresh to check." : undefined}
-            />
-          ))
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+            {/* Connected Shopify store */}
+            {shopify?.connected && (
+              <StoreCard
+                platform="Shopify"
+                icon={<Globe className="w-6 h-6" />}
+                connected
+                storeLabel={shopify.shopify_domain ?? "Shopify store"}
+                productCount={shopify.inventory?.total_products}
+                lastSync={shopify.inventory?.last_sync_at}
+                onConnect={() => setShopifyModal(true)}
+                connectLabel="Connect Shopify"
+                onRefresh={onRefresh}
+                onSync={handleShopifySync}
+                syncing={syncing}
+                connectedDetail={
+                  shopify.inventory
+                    ? `🟢 ${shopify.inventory.low_stock_count} low · 🔴 ${shopify.inventory.out_of_stock_count} out of stock`
+                    : undefined
+                }
+              />
+            )}
+
+            {/* Connected WooCommerce stores */}
+            {wooConnected.map((s) => (
+              <StoreCard
+                key={s.id}
+                platform="WooCommerce"
+                icon={<ShoppingBag className="w-6 h-6" />}
+                connected
+                storeLabel={s.store_name}
+                storeUrl={s.store_url}
+                productCount={undefined}
+                lastSync={s.last_sync_at}
+                onConnect={() => setWooModal(true)}
+                connectLabel="Connect WooCommerce"
+                onRefresh={onRefresh}
+              />
+            ))}
+          </div>
         )}
-      </div>
+      </section>
+
+      {/* Available integrations */}
+      {hasAvailableIntegrations && (
+        <section className="space-y-3">
+          <div>
+            <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400">Available Integrations</h4>
+            <p className="text-xs text-slate-500">Not connected yet — pick one to get started.</p>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+            {/* Shopify integration */}
+            {!shopify?.connected && (
+              <StoreCard
+                platform="Shopify"
+                icon={<Globe className="w-6 h-6" />}
+                connected={false}
+                storeLabel="Not connected"
+                productCount={undefined}
+                lastSync={null}
+                onConnect={() => setShopifyModal(true)}
+                connectLabel="Connect Shopify"
+                onRefresh={onRefresh}
+              />
+            )}
+
+            {/* WooCommerce integration */}
+            {wooConnected.length === 0 &&
+              (wooInactive.length > 0 ? (
+                wooInactive.map((s) => (
+                  <StoreCard
+                    key={s.id}
+                    platform="WooCommerce"
+                    icon={<ShoppingBag className="w-6 h-6" />}
+                    connected={false}
+                    storeLabel={s.store_name}
+                    storeUrl={s.store_url}
+                    productCount={undefined}
+                    lastSync={s.last_sync_at}
+                    onConnect={() => setWooModal(true)}
+                    connectLabel="Connect"
+                    onRefresh={onRefresh}
+                    connectedDetail={
+                      s.status === "error" ? "There's a connection issue — click refresh to check." : undefined
+                    }
+                  />
+                ))
+              ) : (
+                <StoreCard
+                  platform="WooCommerce"
+                  icon={<ShoppingBag className="w-6 h-6" />}
+                  connected={false}
+                  storeLabel="Not connected"
+                  productCount={undefined}
+                  lastSync={null}
+                  onConnect={() => setWooModal(true)}
+                  connectLabel="Connect WooCommerce"
+                  onRefresh={onRefresh}
+                />
+              ))}
+          </div>
+        </section>
+      )}
 
       {storesError && (
         <div className="p-4 rounded-xl bg-amber-50 border border-amber-200 text-sm text-amber-800">
@@ -1090,7 +1220,7 @@ function StoresPage({ stores, storesLoading, storesError, shopify, shopifyLoadin
   );
 }
 
-function StoreCard({ platform, icon, connected, storeLabel, storeUrl, productCount, lastSync, onConnect, connectLabel, onRefresh, connectedDetail }: {
+function StoreCard({ platform, icon, connected, storeLabel, storeUrl, productCount, lastSync, onConnect, connectLabel, onRefresh, onSync, syncing, connectedDetail }: {
   platform: string;
   icon: React.ReactNode;
   connected: boolean;
@@ -1101,6 +1231,8 @@ function StoreCard({ platform, icon, connected, storeLabel, storeUrl, productCou
   onConnect: () => void;
   connectLabel: string;
   onRefresh: () => void;
+  onSync?: () => void;
+  syncing?: boolean;
   connectedDetail?: string;
 }) {
   return (
@@ -1150,10 +1282,20 @@ function StoreCard({ platform, icon, connected, storeLabel, storeUrl, productCou
             </div>
           )}
           {connectedDetail && <p className="text-xs text-amber-700 bg-amber-50 border border-amber-100 rounded-lg p-2">{connectedDetail}</p>}
-          <div className="pt-3">
+          <div className="pt-3 grid grid-cols-2 gap-2">
+            {onSync && (
+              <button
+                onClick={onSync}
+                disabled={syncing}
+                className="py-2.5 rounded-xl bg-gradient-to-r from-violet-600 to-indigo-600 text-white text-sm font-bold hover:shadow-lg transition-all disabled:opacity-60 flex items-center justify-center gap-2"
+              >
+                {syncing ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
+                {syncing ? "Syncing…" : "Sync now"}
+              </button>
+            )}
             <button
               onClick={onRefresh}
-              className="w-full py-2.5 rounded-xl bg-slate-50 border border-slate-200 text-sm font-bold text-slate-700 hover:bg-slate-100 transition-colors"
+              className="py-2.5 rounded-xl bg-slate-50 border border-slate-200 text-sm font-bold text-slate-700 hover:bg-slate-100 transition-colors"
             >
               Refresh
             </button>

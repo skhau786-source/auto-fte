@@ -19,6 +19,7 @@ Usage:
 
 import abc
 import logging
+import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Optional
@@ -47,71 +48,71 @@ class DomainEvent:
 
 @dataclass
 class InventoryAdjusted(DomainEvent):
-    variant_id: UUID
-    product_id: UUID
-    store_id: UUID
-    quantity_before: int
-    quantity_after: int
-    quantity_change: int
+    variant_id: UUID = field(default_factory=uuid.UUID)
+    product_id: UUID = field(default_factory=uuid.UUID)
+    store_id: UUID = field(default_factory=uuid.UUID)
+    quantity_before: int = 0
+    quantity_after: int = 0
+    quantity_change: int = 0
     reason: Optional[str] = None
     performed_by: Optional[UUID] = None
 
 
 @dataclass
 class ProductCreated(DomainEvent):
-    product_id: UUID
-    store_id: UUID
-    title: str
-    variants_count: int
+    product_id: UUID = field(default_factory=uuid.UUID)
+    store_id: UUID = field(default_factory=uuid.UUID)
+    title: str = ""
+    variants_count: int = 0
 
 
 @dataclass
 class ProductUpdated(DomainEvent):
-    product_id: UUID
-    store_id: UUID
-    updated_fields: list[str]
+    product_id: UUID = field(default_factory=uuid.UUID)
+    store_id: UUID = field(default_factory=uuid.UUID)
+    updated_fields: list[str] = field(default_factory=list)
 
 
 @dataclass
 class VariantUpdated(DomainEvent):
-    variant_id: UUID
-    product_id: UUID
-    store_id: UUID
-    inventory_quantity: int
+    variant_id: UUID = field(default_factory=uuid.UUID)
+    product_id: UUID = field(default_factory=uuid.UUID)
+    store_id: UUID = field(default_factory=uuid.UUID)
+    inventory_quantity: int = 0
 
 
 @dataclass
 class WebhookReceived(DomainEvent):
-    topic: str
-    shop_domain: str
-    store_id: UUID
+    topic: str = ""
+    shop_domain: str = ""
+    store_id: UUID = field(default_factory=uuid.UUID)
     body: Optional[dict] = None
 
 
 @dataclass
 class ShopifySyncCompleted(DomainEvent):
-    store_id: UUID
-    products_created: int
-    products_updated: int
-    variants_created: int
-    variants_updated: int
+    store_id: UUID = field(default_factory=uuid.UUID)
+    products_created: int = 0
+    products_updated: int = 0
+    variants_created: int = 0
+    variants_updated: int = 0
     duration_seconds: float = 0.0
 
 
 @dataclass
 class ExportGenerated(DomainEvent):
-    store_id: UUID
-    export_type: str  # products, transactions, logs
-    format: str  # csv, json, xlsx
-    record_count: int
+    store_id: UUID = field(default_factory=uuid.UUID)
+    export_type: str = ""  # products, transactions, logs
+    format: str = ""  # csv, json, xlsx
+    record_count: int = 0
 
 
 @dataclass
 class AlertRaised(DomainEvent):
-    alert_type: str  # low_stock, shopify_failure, webhook_failure, retry_dead_letter
-    severity: str  # info, warning, error, critical
-    title: str
-    message: str
+    alert_type: str = ""  # low_stock, shopify_failure, webhook_failure, retry_dead_letter
+    severity: str = ""  # info, warning, error, critical
+    title: str = ""
+    message: str = ""
     metadata: dict = field(default_factory=dict)
 
 
