@@ -82,6 +82,7 @@ class TeamService:
             raise TeamNameConflictError(name)
 
         team = Team(
+            id=uuid.uuid4(),  # generate client-side so it's available before flush
             organization_id=self.organization_id,
             name=name,
             description=description,
@@ -90,6 +91,7 @@ class TeamService:
 
         # Audit log (before commit so it's in the same transaction)
         await self._log_action(
+            team_id=team.id,
             action_type="team_created",
             target_resource="team",
             target_id=str(team.id),
@@ -160,6 +162,7 @@ class TeamService:
         if updated_fields:
             # Audit log (before commit so it's in the same transaction)
             await self._log_action(
+                team_id=team.id,
                 action_type="team_updated",
                 target_resource="team",
                 target_id=str(team.id),
@@ -200,6 +203,7 @@ class TeamService:
 
         # Audit log (before commit so it's in the same transaction)
         await self._log_action(
+            team_id=team.id,
             action_type="team_deactivated",
             target_resource="team",
             target_id=str(team.id),
@@ -257,6 +261,7 @@ class TeamService:
 
         # Audit log (before commit so it's in the same transaction)
         await self._log_action(
+            team_id=team.id,
             action_type="team_member_added",
             target_resource="team",
             target_id=str(team.id),
@@ -298,6 +303,7 @@ class TeamService:
 
         # Audit log (before commit so it's in the same transaction)
         await self._log_action(
+            team_id=team.id,
             action_type="team_member_removed",
             target_resource="team",
             target_id=str(team.id),
@@ -384,6 +390,7 @@ class TeamService:
 
         # Audit log (before commit so it's in the same transaction)
         await self._log_action(
+            team_id=team.id,
             action_type="team_agent_assigned",
             target_resource="team",
             target_id=str(team.id),
@@ -426,6 +433,7 @@ class TeamService:
 
         # Audit log (before commit so it's in the same transaction)
         await self._log_action(
+            team_id=team.id,
             action_type="team_agent_unassigned",
             target_resource="team",
             target_id=str(team.id),
@@ -606,6 +614,39 @@ class TeamService:
         result = await self.db.execute(agent_query)
         return set(result.scalars().all())
 
+    async def get_user_accessible_team_ids(self) -> set[uuid.UUID]:
+        """
+        Return the set of team IDs the current user may access within
+        the organization.
+
+        Used by AIService.get_visible_team_ids() to scope team-level
+        audit actions (GET /ai/actions) the same way
+        get_user_accessible_agent_ids() scopes tasks and agent actions.
+
+        Rules (mirrors get_user_accessible_agent_ids):
+        1. Org OWNER/ADMIN → all teams in the org
+        2. Org member on a team → just their own team
+        3. Org member with no team → empty set
+        4. Non-org-member → empty set (should never happen upstream)
+        """
+        if self.user_id is None:
+            return set()
+
+        org_member = await self._get_org_member(self.user_id)
+        if org_member is None:
+            return set()
+
+        if org_member.role in (MembershipRole.OWNER, MembershipRole.ADMIN):
+            result = await self.db.execute(
+                select(Team.id).where(Team.organization_id == self.organization_id)
+            )
+            return set(result.scalars().all())
+
+        if org_member.team_id is not None:
+            return {org_member.team_id}
+
+        return set()
+
     # ═══════════════════════════════════════════════════════════════
     # INTERNAL HELPERS
     # ═══════════════════════════════════════════════════════════════
@@ -727,15 +768,25 @@ class TeamService:
 
     async def _log_action(
         self,
+        team_id: uuid.UUID,
         action_type: str,
         target_resource: Optional[str] = None,
         target_id: Optional[str] = None,
         details: Optional[dict] = None,
         result_status: str = "success",
     ) -> AIAgentAction:
-        """Create an immutable audit log entry for team operations."""
+        """
+        Create an immutable audit log entry for team operations.
+
+        Team operations have no associated AIAgent, so agent_id is left
+        NULL (AIAgentAction.agent_id is nullable for exactly this case —
+        it used to be filled with a fabricated random UUID here, which
+        violated the ai_agents foreign key against a real database) and
+        the action is scoped by team_id instead.
+        """
         action = AIAgentAction(
-            agent_id=uuid.uuid4(),  # placeholder — team actions are not agent-specific
+            agent_id=None,
+            team_id=team_id,
             organization_id=self.organization_id,
             action_type=action_type,
             target_resource=target_resource,

@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { GoogleOAuthProvider } from "@react-oauth/google";
+import { LocaleProvider } from "./lib/i18n";
 import "./globals.css";
 
 export const viewport: Viewport = {
@@ -45,7 +46,7 @@ export default function RootLayout({
       </head>
       <body className="min-h-screen bg-gradient-to-b from-slate-50 to-slate-100 antialiased">
         <GoogleOAuthProvider clientId={googleClientId}>
-          {children}
+          <LocaleProvider>{children}</LocaleProvider>
         </GoogleOAuthProvider>
       </body>
     </html>

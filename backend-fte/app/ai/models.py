@@ -211,15 +211,32 @@ class AIAgentAction(Base):
 
     Records what the agent did, to what resource, and the outcome.
     Never updated after creation.
+
+    agent_id is nullable to support team-level actions (team CRUD,
+    membership changes, agent assignment) that are not associated with
+    any single AIAgent — see TeamService._log_action. team_id is set for
+    those actions, and is also populated (from the agent's current team
+    assignment) for ordinary agent-scoped actions so the audit trail can
+    be queried per team. team_id uses ondelete="SET NULL" (matching
+    AIAgent.team_id's existing pattern) so deleting a team never deletes
+    audit rows — the trail stays immutable/append-only even then.
+    agent_id keeps its original ondelete="CASCADE" (unchanged behavior).
     """
     __tablename__ = "ai_agent_actions"
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
 
-    agent_id: Mapped[uuid.UUID] = mapped_column(
+    agent_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("ai_agents.id", ondelete="CASCADE"),
-        nullable=False,
+        nullable=True,
+        index=True,
+    )
+
+    team_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("teams.id", ondelete="SET NULL"),
+        nullable=True,
         index=True,
     )
 
@@ -254,7 +271,7 @@ class AIAgentAction(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     # Relationships
-    agent: Mapped["AIAgent"] = relationship(
+    agent: Mapped["AIAgent | None"] = relationship(
         "AIAgent", back_populates="actions", foreign_keys="[AIAgentAction.agent_id]"
     )
     task: Mapped["AIAgentTask | None"] = relationship(back_populates="actions")

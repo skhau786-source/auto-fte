@@ -1007,6 +1007,11 @@ class TestTeamAuditLogging:
         assert audit.performed_by == user_id
         assert audit.result_status == "success"
         assert audit.details["name"] == "Audit Team"
+        # 4.6D fix: team actions carry team_id and leave agent_id NULL
+        # (never a fabricated agent_id, which used to violate the
+        # ai_agents FK against a real database).
+        assert audit.team_id == team.id
+        assert audit.agent_id is None
 
     @pytest.mark.asyncio
     async def test_update_team_creates_audit(self, mock_db, org_id, user_id):
@@ -1163,6 +1168,10 @@ class TestTeamAuditLogging:
         assert audit.organization_id == org_id
         assert audit.details["agent_id"] == str(agent.id)
         assert audit.details["agent_name"] == "Test Agent"
+        # The audit row is scoped by the TEAM being assigned to, not the
+        # (soon-to-be-reassigned) agent, and never fakes an agent_id.
+        assert audit.team_id == team.id
+        assert audit.agent_id is None
 
     @pytest.mark.asyncio
     async def test_unassign_agent_creates_audit(self, mock_db, org_id, user_id):

@@ -1,8 +1,16 @@
 """ai_agents — Phase 4 AI Agent Collaboration Foundation
 
 Revision ID: ai_agents_001
-Revises: None (adds new tables only)
+Revises: organizations_teams_initial
 Create Date: 2026-08-20
+
+Note (2026-08-27): down_revision was originally None — this migration was
+a disconnected second root, even though every table it creates has an
+`organization_id` foreign key to `organizations.id`. No migration ever
+created that table (see organizations_teams_initial.py's docstring for
+how this was found and why it was safe to fix by repointing here rather
+than leaving it broken). Repointed to organizations_teams_initial so
+`organizations.id` actually exists before this migration runs.
 """
 
 from alembic import op
@@ -11,7 +19,7 @@ from sqlalchemy.dialects.postgresql import UUID, JSONB
 
 # revision identifiers
 revision = "ai_agents_001"
-down_revision = None
+down_revision = "organizations_teams_initial"
 branch_labels = None
 depends_on = None
 

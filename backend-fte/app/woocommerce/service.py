@@ -42,6 +42,7 @@ from app.woocommerce.constants import (
     AlertType,
     AlertSeverity,
     StoreStatus,
+    REVENUE_ORDER_STATUSES,
     DEFAULT_LOW_STOCK_THRESHOLD,
     DEFAULT_SYNC_INTERVAL_HOURS,
 )
@@ -1440,6 +1441,173 @@ class WooCommerceService:
             "recent_alerts": recent_alerts,
             "recent_syncs": recent_syncs,
         }
+
+    # ═══════════════════════════════════════════════════════════════
+    # ANALYTICS (Revenue Dashboard / Advanced Analytics)
+    # ═══════════════════════════════════════════════════════════════
+    #
+    # Every figure below is computed directly from WooCommerceOrder /
+    # WooCommerceOrderItem rows already synced for this store — nothing
+    # here is estimated, hard-coded, or fabricated. "Revenue" only
+    # counts orders in REVENUE_ORDER_STATUSES (processing/on-hold/
+    # completed); pending, cancelled, refunded, failed, trash, and
+    # draft orders are excluded — see constants.py for why.
+
+    async def get_revenue_analytics(self, store_id: uuid.UUID, days: int = 30) -> dict:
+        """
+        Revenue trend + summary for the last `days` days, compared
+        against the immediately preceding period of equal length
+        (e.g. last 30 days vs. the 30 days before that).
+        """
+        await self._get_store(store_id)
+        days = max(1, min(days, 365))
+
+        now = datetime.now(timezone.utc)
+        period_start = now - timedelta(days=days)
+        previous_period_start = period_start - timedelta(days=days)
+
+        daily_result = await self.db.execute(
+            select(
+                func.date(WooCommerceOrder.created_at),
+                func.coalesce(func.sum(WooCommerceOrder.total), 0),
+                func.count(WooCommerceOrder.id),
+            )
+            .where(
+                WooCommerceOrder.store_id == store_id,
+                WooCommerceOrder.status.in_(REVENUE_ORDER_STATUSES),
+                WooCommerceOrder.created_at >= period_start,
+            )
+            .group_by(func.date(WooCommerceOrder.created_at))
+            .order_by(func.date(WooCommerceOrder.created_at))
+        )
+        trend = [
+            {"date": str(day), "revenue": float(revenue or 0), "orders": order_count or 0}
+            for day, revenue, order_count in daily_result.all()
+        ]
+
+        current_result = await self.db.execute(
+            select(
+                func.coalesce(func.sum(WooCommerceOrder.total), 0),
+                func.count(WooCommerceOrder.id),
+            ).where(
+                WooCommerceOrder.store_id == store_id,
+                WooCommerceOrder.status.in_(REVENUE_ORDER_STATUSES),
+                WooCommerceOrder.created_at >= period_start,
+            )
+        )
+        cur_revenue, cur_orders = current_result.one()
+        cur_revenue = float(cur_revenue or 0)
+        cur_orders = cur_orders or 0
+
+        previous_result = await self.db.execute(
+            select(
+                func.coalesce(func.sum(WooCommerceOrder.total), 0),
+                func.count(WooCommerceOrder.id),
+            ).where(
+                WooCommerceOrder.store_id == store_id,
+                WooCommerceOrder.status.in_(REVENUE_ORDER_STATUSES),
+                WooCommerceOrder.created_at >= previous_period_start,
+                WooCommerceOrder.created_at < period_start,
+            )
+        )
+        prev_revenue, prev_orders = previous_result.one()
+        prev_revenue = float(prev_revenue or 0)
+        prev_orders = prev_orders or 0
+
+        revenue_change_pct = (
+            round((cur_revenue - prev_revenue) / prev_revenue * 100, 1)
+            if prev_revenue > 0 else None
+        )
+        order_change_pct = (
+            round((cur_orders - prev_orders) / prev_orders * 100, 1)
+            if prev_orders > 0 else None
+        )
+        avg_order_value = round(cur_revenue / cur_orders, 2) if cur_orders > 0 else 0.0
+
+        return {
+            "period_days": days,
+            "period_start": period_start,
+            "period_end": now,
+            "revenue": round(cur_revenue, 2),
+            "orders": cur_orders,
+            "average_order_value": avg_order_value,
+            "previous_period_revenue": round(prev_revenue, 2),
+            "previous_period_orders": prev_orders,
+            "revenue_change_pct": revenue_change_pct,
+            "order_change_pct": order_change_pct,
+            "trend": trend,
+        }
+
+    async def get_top_products(
+        self, store_id: uuid.UUID, days: int = 30, limit: int = 10,
+    ) -> list[dict]:
+        """
+        Top products by realized revenue over the last `days` days,
+        computed from actual order line items (WooCommerceOrderItem.total)
+        — not WooCommerceProduct.total_sales, which is a lifetime
+        WooCommerce counter unrelated to the selected period.
+        """
+        await self._get_store(store_id)
+        days = max(1, min(days, 365))
+        limit = max(1, min(limit, 50))
+        period_start = datetime.now(timezone.utc) - timedelta(days=days)
+
+        result = await self.db.execute(
+            select(
+                WooCommerceOrderItem.wc_product_id,
+                WooCommerceOrderItem.name,
+                WooCommerceOrderItem.sku,
+                func.coalesce(func.sum(WooCommerceOrderItem.total), 0).label("revenue"),
+                func.coalesce(func.sum(WooCommerceOrderItem.quantity), 0).label("units_sold"),
+            )
+            .join(WooCommerceOrder, WooCommerceOrderItem.order_id == WooCommerceOrder.id)
+            .where(
+                WooCommerceOrder.store_id == store_id,
+                WooCommerceOrder.status.in_(REVENUE_ORDER_STATUSES),
+                WooCommerceOrder.created_at >= period_start,
+            )
+            .group_by(
+                WooCommerceOrderItem.wc_product_id,
+                WooCommerceOrderItem.name,
+                WooCommerceOrderItem.sku,
+            )
+            .order_by(desc("revenue"))
+            .limit(limit)
+        )
+
+        return [
+            {
+                "wc_product_id": row[0],
+                "name": row[1],
+                "sku": row[2],
+                "revenue": float(row[3] or 0),
+                "units_sold": int(row[4] or 0),
+            }
+            for row in result.all()
+        ]
+
+    async def get_order_status_breakdown(self, store_id: uuid.UUID, days: int = 30) -> list[dict]:
+        """
+        Count of orders per status over the last `days` days — every
+        status, unfiltered (this is an operational health view, not a
+        revenue view, so pending/cancelled/etc. are deliberately included).
+        """
+        await self._get_store(store_id)
+        days = max(1, min(days, 365))
+        period_start = datetime.now(timezone.utc) - timedelta(days=days)
+
+        result = await self.db.execute(
+            select(WooCommerceOrder.status, func.count(WooCommerceOrder.id))
+            .where(
+                WooCommerceOrder.store_id == store_id,
+                WooCommerceOrder.created_at >= period_start,
+            )
+            .group_by(WooCommerceOrder.status)
+        )
+        return [
+            {"status": status.value if hasattr(status, "value") else status, "count": count}
+            for status, count in result.all()
+        ]
 
     # ═══════════════════════════════════════════════════════════════
     # SETTINGS

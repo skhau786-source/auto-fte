@@ -68,6 +68,18 @@ class OrderStatus(str, enum.Enum):
     DRAFT = "draft"
 
 
+# Order statuses that count as realized revenue for analytics purposes
+# (Revenue Dashboard / Advanced Analytics) — mirrors standard e-commerce
+# accounting practice: an order counts once it's confirmed/paid or being
+# fulfilled. Excludes PENDING (payment not yet confirmed), CANCELLED,
+# REFUNDED, FAILED, TRASH, and DRAFT.
+REVENUE_ORDER_STATUSES: tuple[OrderStatus, ...] = (
+    OrderStatus.PROCESSING,
+    OrderStatus.ON_HOLD,
+    OrderStatus.COMPLETED,
+)
+
+
 class StockStatus(str, enum.Enum):
     """WooCommerce stock statuses."""
     IN_STOCK = "instock"

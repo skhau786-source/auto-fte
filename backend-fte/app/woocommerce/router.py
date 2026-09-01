@@ -27,6 +27,7 @@ from app.woocommerce.schemas import (
     CouponOut, CouponListOut,
     AlertOut, AlertListOut, AlertMarkRequest,
     DashboardOut, DashboardStats,
+    RevenueAnalyticsOut, TopProductsOut, OrderStatusBreakdownOut,
     SettingsOut, SettingsUpdateRequest,
     SyncRequest, SyncResponse, SyncLogOut, SyncLogListOut,
     MessageResponse, BulkImportRequest, BulkImportResponse,
@@ -620,6 +621,65 @@ async def get_dashboard(
         data = await service.get_dashboard(store_id=store_id)
         return DashboardOut(**data)
     except StoreNotFoundError as exc:
+        _handle_error(exc)
+
+
+# ═══════════════════════════════════════════════════════════════════
+# ANALYTICS ENDPOINTS (Revenue Dashboard / Advanced Analytics)
+# ═══════════════════════════════════════════════════════════════════
+
+@router.get(
+    "/stores/{store_id}/analytics/revenue",
+    response_model=RevenueAnalyticsOut,
+    summary="Get revenue trend and summary analytics",
+)
+async def get_revenue_analytics(
+    store_id: uuid.UUID,
+    days: int = Query(30, ge=1, le=365, description="Size of the analysis period, in days"),
+    service: WooCommerceService = Depends(_get_service),
+):
+    """Revenue trend (daily) + summary for `days` days, compared to the prior period of equal length."""
+    try:
+        data = await service.get_revenue_analytics(store_id=store_id, days=days)
+        return RevenueAnalyticsOut(**data)
+    except (StoreNotFoundError, StoreInactiveError) as exc:
+        _handle_error(exc)
+
+
+@router.get(
+    "/stores/{store_id}/analytics/top-products",
+    response_model=TopProductsOut,
+    summary="Get top products by realized revenue",
+)
+async def get_top_products_analytics(
+    store_id: uuid.UUID,
+    days: int = Query(30, ge=1, le=365),
+    limit: int = Query(10, ge=1, le=50),
+    service: WooCommerceService = Depends(_get_service),
+):
+    """Top products by realized order-item revenue over `days` days."""
+    try:
+        products = await service.get_top_products(store_id=store_id, days=days, limit=limit)
+        return TopProductsOut(products=products)
+    except (StoreNotFoundError, StoreInactiveError) as exc:
+        _handle_error(exc)
+
+
+@router.get(
+    "/stores/{store_id}/analytics/order-status",
+    response_model=OrderStatusBreakdownOut,
+    summary="Get order counts grouped by status",
+)
+async def get_order_status_analytics(
+    store_id: uuid.UUID,
+    days: int = Query(30, ge=1, le=365),
+    service: WooCommerceService = Depends(_get_service),
+):
+    """Order counts grouped by status over `days` days (operational health view)."""
+    try:
+        breakdown = await service.get_order_status_breakdown(store_id=store_id, days=days)
+        return OrderStatusBreakdownOut(period_days=days, breakdown=breakdown)
+    except (StoreNotFoundError, StoreInactiveError) as exc:
         _handle_error(exc)
 
 

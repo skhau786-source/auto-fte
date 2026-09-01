@@ -669,3 +669,52 @@ class PaginationParams(BaseModel):
     """Common pagination parameters."""
     page: int = Field(default=1, ge=1)
     page_size: int = Field(default=20, ge=1, le=100)
+
+
+# ═══════════════════════════════════════════════════════════════════
+# ANALYTICS SCHEMAS (Revenue Dashboard / Advanced Analytics)
+# ═══════════════════════════════════════════════════════════════════
+
+class RevenueTrendPointOut(BaseModel):
+    """One day's revenue/order count within a revenue trend."""
+    date: str
+    revenue: float
+    orders: int
+
+
+class RevenueAnalyticsOut(BaseModel):
+    """Revenue summary + daily trend for a period, compared to the prior period."""
+    period_days: int
+    period_start: datetime
+    period_end: datetime
+    revenue: float
+    orders: int
+    average_order_value: float
+    previous_period_revenue: float
+    previous_period_orders: int
+    revenue_change_pct: Optional[float] = None
+    order_change_pct: Optional[float] = None
+    trend: list[RevenueTrendPointOut] = []
+
+
+class TopProductOut(BaseModel):
+    """A product's realized revenue/units sold within a period."""
+    wc_product_id: int
+    name: str
+    sku: Optional[str] = None
+    revenue: float
+    units_sold: int
+
+
+class TopProductsOut(BaseModel):
+    products: list[TopProductOut] = []
+
+
+class OrderStatusCountOut(BaseModel):
+    status: str
+    count: int
+
+
+class OrderStatusBreakdownOut(BaseModel):
+    period_days: int
+    breakdown: list[OrderStatusCountOut] = []

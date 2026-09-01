@@ -122,6 +122,34 @@ class ReservationRepository:
         )
         return result.scalar_one_or_none()
 
+    async def get_expired_ids(
+        self, now: datetime, limit: int = 500,
+    ) -> list[uuid.UUID]:
+        """
+        IDs of ACTIVE/PENDING reservations across all stores whose
+        expires_at has passed.
+
+        Cross-store on purpose — the sweep is an internal maintenance job
+        with no per-request store context (unlike every other method on
+        this repository, which is scoped by the caller's store).
+        Committed/released/expired/cancelled reservations never match
+        (status filter), and reservations with no expiry (expires_at IS
+        NULL) never match either — they were never meant to auto-expire.
+        """
+        result = await self.db.execute(
+            select(InventoryReservation.id)
+            .where(
+                InventoryReservation.status.in_(
+                    [ReservationStatus.ACTIVE, ReservationStatus.PENDING]
+                ),
+                InventoryReservation.expires_at.isnot(None),
+                InventoryReservation.expires_at <= now,
+            )
+            .order_by(InventoryReservation.expires_at.asc())
+            .limit(limit)
+        )
+        return list(result.scalars().all())
+
 
 class ReservationService:
     """Store-level inventory reservation orchestration."""
@@ -467,3 +495,102 @@ class ReservationService:
     ) -> None:
         if str(reservation.store_id) != str(self.store.id):
             raise InvalidStoreOwnershipError("Reservation", str(reservation.id))
+
+
+# ═══════════════════════════════════════════════════════════════════
+# AUTOMATIC EXPIRATION SWEEP
+# ═══════════════════════════════════════════════════════════════════
+#
+# ReservationService above is scoped to a single store (every method
+# assumes a request made on behalf of that store's owner). The sweep
+# below is a system-level maintenance job with no such context — it
+# runs across every store's reservations, the same way the other jobs
+# in app/scheduler/scheduler_service.py iterate all active stores.
+
+async def expire_stale_reservations(
+    db: AsyncSession,
+    now: Optional[datetime] = None,
+    limit: int = 500,
+) -> list[uuid.UUID]:
+    """
+    Find every ACTIVE/PENDING reservation whose expires_at has passed and
+    expire it: restore the reserved stock to the variant and mark the
+    reservation EXPIRED, exactly like ReservationService.expire_reservation
+    does for a single reservation — just applied in bulk, automatically,
+    across all stores.
+
+    Idempotent and safe to run repeatedly / concurrently:
+    - Candidates are first listed without a lock, then each one is
+      re-fetched with `SELECT ... FOR UPDATE` and re-checked (still
+      ACTIVE/PENDING, still actually past expires_at) immediately before
+      acting on it. A reservation already committed, released, expired,
+      or cancelled by the time it's re-checked — whether by a user
+      action or by another overlapping sweep run — is left untouched
+      instead of being double-processed (which would double-credit
+      stock back to the variant).
+    - Each reservation is committed in its own transaction (mirroring
+      every other method on ReservationService), so one bad row can
+      never block or roll back the others, and a crash mid-sweep leaves
+      already-processed rows correctly committed rather than reverted.
+    """
+    now = now or datetime.now(timezone.utc)
+    repo = ReservationRepository(db)
+    expired_ids: list[uuid.UUID] = []
+
+    candidate_ids = await repo.get_expired_ids(now, limit=limit)
+
+    for reservation_id in candidate_ids:
+        try:
+            result = await db.execute(
+                select(InventoryReservation)
+                .where(InventoryReservation.id == reservation_id)
+                .with_for_update()
+            )
+            reservation = result.scalar_one_or_none()
+
+            # Re-check under lock: someone else (a user action or a
+            # concurrent sweep) may have already handled this row.
+            if reservation is None:
+                continue
+            if reservation.status not in (
+                ReservationStatus.ACTIVE, ReservationStatus.PENDING,
+            ):
+                continue
+            if reservation.expires_at is None or reservation.expires_at > now:
+                continue
+
+            store_id = reservation.store_id
+            if reservation.variant_id:
+                variant_result = await db.execute(
+                    select(ProductVariant)
+                    .where(ProductVariant.id == reservation.variant_id)
+                    .with_for_update()
+                )
+                variant = variant_result.scalar_one_or_none()
+                if variant:
+                    variant.inventory_quantity += reservation.quantity
+
+            reservation.status = ReservationStatus.EXPIRED
+            reservation.released_at = now
+            await db.commit()
+            expired_ids.append(reservation_id)
+
+            try:
+                await aggregation_cache.invalidate_store(store_id)
+            except Exception as cache_exc:
+                logger.warning(
+                    "Aggregation cache invalidation failed for store %s: %s",
+                    store_id, cache_exc,
+                )
+        except Exception:
+            logger.exception(
+                "Failed to auto-expire reservation %s — will retry on next sweep",
+                reservation_id,
+            )
+            await db.rollback()
+            continue
+
+    if expired_ids:
+        logger.info("Auto-expired %d stale reservation(s)", len(expired_ids))
+
+    return expired_ids

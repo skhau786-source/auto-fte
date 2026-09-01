@@ -422,6 +422,55 @@ export const dashboardApi = {
     apiGet<DashboardData>(`/woocommerce/stores/${storeId}/dashboard`),
 };
 
+// ─── Analytics (Revenue Dashboard / Advanced Analytics) ───
+
+export interface RevenueTrendPoint {
+  date: string;
+  revenue: number;
+  orders: number;
+}
+
+export interface RevenueAnalytics {
+  period_days: number;
+  period_start: string;
+  period_end: string;
+  revenue: number;
+  orders: number;
+  average_order_value: number;
+  previous_period_revenue: number;
+  previous_period_orders: number;
+  revenue_change_pct: number | null;
+  order_change_pct: number | null;
+  trend: RevenueTrendPoint[];
+}
+
+export interface TopProduct {
+  wc_product_id: number;
+  name: string;
+  sku: string | null;
+  revenue: number;
+  units_sold: number;
+}
+
+export interface OrderStatusCount {
+  status: string;
+  count: number;
+}
+
+export interface OrderStatusBreakdown {
+  period_days: number;
+  breakdown: OrderStatusCount[];
+}
+
+export const analyticsApi = {
+  getRevenue: (storeId: string, days = 30) =>
+    apiGet<RevenueAnalytics>(`/woocommerce/stores/${storeId}/analytics/revenue`, { days }),
+  getTopProducts: (storeId: string, days = 30, limit = 10) =>
+    apiGet<{ products: TopProduct[] }>(`/woocommerce/stores/${storeId}/analytics/top-products`, { days, limit }),
+  getOrderStatusBreakdown: (storeId: string, days = 30) =>
+    apiGet<OrderStatusBreakdown>(`/woocommerce/stores/${storeId}/analytics/order-status`, { days }),
+};
+
 // ─── WooCommerce Settings ───
 
 export interface StoreSettings {
@@ -885,7 +934,8 @@ export interface AITaskListResponse {
 
 export interface AIAgentAction {
   id: string;
-  agent_id: string;
+  agent_id: string | null;
+  team_id: string | null;
   task_id: string | null;
   organization_id: string;
   action_type: string;

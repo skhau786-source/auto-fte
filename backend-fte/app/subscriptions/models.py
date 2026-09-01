@@ -1,5 +1,6 @@
 """Subscription & billing models for Stripe integration."""
 
+import os
 import uuid
 import enum
 from datetime import datetime
@@ -93,17 +94,37 @@ PLAN_LIMITS: dict[str, dict] = {
     },
 }
 
-# Stripe Price IDs (set per environment)
+# Stripe Price IDs — read from environment variables, never hard-coded,
+# since a real price id is specific to one Stripe account and differs
+# between dev/staging/production. Naming convention:
+# STRIPE_PRICE_<PLAN>_<INTERVAL>, e.g. STRIPE_PRICE_STARTER_MONTHLY.
+# Empty string means "not configured for this deployment" — attempting a
+# checkout for such a plan/interval raises UnknownPlanError rather than
+# silently sending Stripe an empty price id.
+_BILLABLE_PLANS = (PlanTier.STARTER, PlanTier.PROFESSIONAL, PlanTier.ENTERPRISE)
+_INTERVALS = ("monthly", "yearly")
+
 STRIPE_PRICE_IDS: dict[str, str] = {
-    # Format: "plan_interval" -> "price_id"
-    # These should be set in environment variables
-    PlanTier.STARTER.value + "_monthly": "",
-    PlanTier.STARTER.value + "_yearly": "",
-    PlanTier.PROFESSIONAL.value + "_monthly": "",
-    PlanTier.PROFESSIONAL.value + "_yearly": "",
-    PlanTier.ENTERPRISE.value + "_monthly": "",
-    PlanTier.ENTERPRISE.value + "_yearly": "",
+    f"{plan.value}_{interval}": os.environ.get(
+        f"STRIPE_PRICE_{plan.value.upper()}_{interval.upper()}", ""
+    )
+    for plan in _BILLABLE_PLANS
+    for interval in _INTERVALS
 }
+
+
+def get_stripe_price_id(plan: str, interval: str) -> Optional[str]:
+    """Look up the configured Stripe price id for a plan/interval, or None."""
+    price_id = STRIPE_PRICE_IDS.get(f"{plan}_{interval}", "")
+    return price_id or None
+
+
+def get_plan_for_price_id(price_id: str) -> Optional[str]:
+    """Reverse lookup: which plan tier does this Stripe price id belong to?"""
+    for key, configured_price_id in STRIPE_PRICE_IDS.items():
+        if configured_price_id and configured_price_id == price_id:
+            return key.rsplit("_", 1)[0]
+    return None
 
 
 def get_plan_limits(plan: str) -> dict:
@@ -181,3 +202,24 @@ class UsageRecord(Base):
         DateTime(timezone=True), server_default=func.now(), index=True
     )
     duration_ms: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+
+
+class StripeWebhookEvent(Base):
+    """
+    Records every Stripe webhook event this app has already processed.
+
+    Stripe explicitly does not guarantee at-most-once delivery — the same
+    event can be (and in production regularly is) delivered more than
+    once. The event's own `id` (e.g. "evt_...") is globally unique per
+    Stripe account, so recording it here before acting on it turns
+    webhook processing into an idempotent operation: a duplicate delivery
+    is recognized and skipped instead of being applied twice (e.g.
+    double-activating a subscription).
+    """
+    __tablename__ = "stripe_webhook_events"
+
+    id: Mapped[str] = mapped_column(String(255), primary_key=True)
+    event_type: Mapped[str] = mapped_column(String(255), nullable=False)
+    received_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(),
+    )

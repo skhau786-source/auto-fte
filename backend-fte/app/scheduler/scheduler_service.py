@@ -8,6 +8,10 @@ Jobs:
 4. Backup Reminder — log a warning if no backup was taken recently
 5. Retry Dead Letters — attempt to recover dead-lettered transactions
 6. Daily Inventory Report — generate and store daily report snapshot
+7. Expire Stale Reservations — auto-expire reservations past expires_at
+   (runs on every scheduler tick, not just daily — reservations are
+   typically minutes-scoped, so a once-a-day sweep would hold stock
+   locked for up to 24h)
 """
 
 import asyncio
@@ -62,6 +66,7 @@ class SchedulerService:
         await self.run_job("cleanup_tokens", self.cleanup_expired_tokens)
         await self.run_job("retry_dead_letters", self.retry_dead_letters)
         await self.run_job("daily_report", self.daily_inventory_report)
+        await self.run_job("expire_reservations", self.expire_reservations)
 
     # ═══════════════════════════════════════════════════════════════
     # Job 1: Nightly Shopify Sync
@@ -239,6 +244,19 @@ class SchedulerService:
                     )
 
     # ═══════════════════════════════════════════════════════════════
+    # Job 7: Expire Stale Reservations
+    # ═══════════════════════════════════════════════════════════════
+
+    async def expire_reservations(self):
+        """Auto-expire reservations across all stores whose expires_at has passed."""
+        from app.inventory.reservation_service import expire_stale_reservations
+
+        async with self.SessionLocal() as db:
+            expired_ids = await expire_stale_reservations(db)
+            if expired_ids:
+                logger.info("Auto-expired %d stale reservation(s)", len(expired_ids))
+
+    # ═══════════════════════════════════════════════════════════════
     # Entry Point
     # ═══════════════════════════════════════════════════════════════
 
@@ -248,6 +266,11 @@ class SchedulerService:
 
         while self.running:
             now = datetime.now(timezone.utc)
+
+            # Runs every tick (not gated by REPORT_HOUR): reservations
+            # are typically minutes-scoped, so this can't wait for the
+            # once-a-day window the other jobs share.
+            await self.run_job("expire_reservations", self.expire_reservations)
 
             if now.hour == REPORT_HOUR and now.minute < 5:
                 await self.run_all()
