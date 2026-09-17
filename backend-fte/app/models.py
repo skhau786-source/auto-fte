@@ -438,3 +438,8 @@ class InventoryReservation(Base):
         ),
     )
 
+
+# Import WooCommerceStore at the end so the mapper can resolve the relationship
+# in RegisteredStudent.wc_stores
+from app.woocommerce.models import WooCommerceStore  # noqa: E402, F401
+
