@@ -202,6 +202,22 @@ class ReservationService:
                 available=available,
             )
 
+        # CROSS-CHANNEL AWARENESS: Calculate total active reservations
+        # to provide visibility into multi-channel coordination pressure.
+        # Note: inventory_quantity is already decremented by prior reservations,
+        # so the main check (available >= quantity) already prevents oversell.
+        # This call provides logging/alerting for operational awareness.
+        total_reserved = await self._get_total_reserved_quantity(
+            variant_id, exclude_order_id=order_id,
+        )
+
+        if total_reserved > 0:
+            self.logger.debug(
+                "Cross-channel pressure for variant %s: "
+                "%d units reserved (Shopify/WooCommerce), available=%d, requested=%d",
+                variant_id, total_reserved, available, quantity,
+            )
+
         # Duplicate active reservation guard (per variant + order)
         if order_id:
             existing = await self.repo.get_active_for_variant_order(
@@ -248,9 +264,13 @@ class ReservationService:
         await self.db.refresh(reservation)
         await self._invalidate_cache()
 
+        # Check for near-oversell scenario (useful for cross-channel coordination)
+        total_reserved_after = await self._get_total_reserved_quantity(variant_id)
+        await self._check_oversell_alert(variant_id, total_reserved_after)
+
         self.logger.info(
-            "Reserved %d units of variant %s (order=%s, reservation=%s)",
-            quantity, variant_id, order_id, reservation.id,
+            "Reserved %d units of variant %s (order=%s, reservation=%s, total_reserved=%d)",
+            quantity, variant_id, order_id, reservation.id, total_reserved_after,
         )
         return reservation
 
@@ -434,6 +454,93 @@ class ReservationService:
     # ═══════════════════════════════════════════════════════════════
     # INTERNAL HELPERS
     # ═══════════════════════════════════════════════════════════════
+
+    async def _get_total_reserved_quantity(
+        self,
+        variant_id: uuid.UUID,
+        exclude_order_id: Optional[str] = None,
+    ) -> int:
+        """
+        Calculate total quantity already reserved for a variant across all sources.
+
+        This helps detect cross-channel oversell scenarios. For example:
+        - Shopify order for 3 units
+        - WooCommerce order for 3 units
+        - Both target same variant with 5 units in stock
+
+        Without this check, both could succeed if timing is unfortunate.
+
+        Args:
+            variant_id: The variant to check
+            exclude_order_id: If provided, don't count reservations for this order
+                (used to exclude the current order being processed)
+
+        Returns:
+            Total quantity in ACTIVE or PENDING reservations
+        """
+        conditions = [
+            InventoryReservation.variant_id == variant_id,
+            InventoryReservation.store_id == self.store.id,
+            InventoryReservation.status.in_(
+                [ReservationStatus.ACTIVE, ReservationStatus.PENDING]
+            ),
+        ]
+
+        if exclude_order_id:
+            conditions.append(InventoryReservation.order_id != exclude_order_id)
+
+        result = await self.db.execute(
+            select(func.coalesce(func.sum(InventoryReservation.quantity), 0)).where(
+                *conditions
+            )
+        )
+        total = result.scalar() or 0
+        return int(total)
+
+    async def _check_oversell_alert(
+        self,
+        variant_id: uuid.UUID,
+        total_reserved: int,
+    ) -> None:
+        """
+        Alert if variant is close to being over-allocated.
+
+        Oversell alert thresholds:
+        - 75%: warning (e.g., 10 units in stock, 7.5 reserved)
+        - 90%: critical (e.g., 10 units in stock, 9 reserved)
+        - 100%+: error (over-allocated; this shouldn't happen if safeguards work)
+
+        Used for cross-channel visibility — operations can see when Shopify +
+        WooCommerce combined are consuming inventory rapidly.
+        """
+        variant = await self._get_variant(variant_id)
+        if not variant:
+            return
+
+        available = variant.inventory_quantity
+        if available <= 0:
+            return
+
+        utilization = (total_reserved / available) if available > 0 else 0
+
+        if utilization >= 1.0:
+            self.logger.error(
+                "🚨 OVERSELL ALERT: Variant %s is 100%% allocated "
+                "(available=%d, reserved=%d, utilization=%.1f%%)",
+                variant_id, available, total_reserved, utilization * 100,
+            )
+        elif utilization >= 0.9:
+            self.logger.warning(
+                "⚠️  CRITICAL: Variant %s is 90%%+ allocated "
+                "(available=%d, reserved=%d, utilization=%.1f%%)",
+                variant_id, available, total_reserved, utilization * 100,
+            )
+        elif utilization >= 0.75:
+            self.logger.warning(
+                "⚠️  WARNING: Variant %s is 75%%+ allocated "
+                "(available=%d, reserved=%d, utilization=%.1f%% — cross-channel pressure)",
+                variant_id, available, total_reserved, utilization * 100,
+            )
 
     async def _get_locked_variant(
         self, variant_id: uuid.UUID,
