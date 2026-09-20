@@ -15,8 +15,14 @@ from typing import Optional
 from sqlalchemy import (
     String, Boolean, DateTime, ForeignKey, Enum, func, Text, Integer, Float,
 )
-from sqlalchemy.dialects.postgresql import UUID, JSONB, VECTOR
+from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
+
+# Try to import pgvector VECTOR type, fallback to LargeBinary if not available
+try:
+    from pgvector.sqlalchemy import Vector as VECTOR
+except ImportError:
+    from sqlalchemy import LargeBinary as VECTOR
 
 from app.database import Base
 
@@ -103,7 +109,7 @@ class RAGDocument(Base):
     content: Mapped[str] = mapped_column(Text, nullable=False)
 
     # Processing metadata
-    metadata: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    doc_metadata: Mapped[dict | None] = mapped_column("metadata", JSONB, nullable=True)
     source_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
 
     # Chunking info
@@ -176,7 +182,7 @@ class RAGChunk(Base):
     embedding_model: Mapped[str] = mapped_column(String(255), nullable=True)
 
     # Metadata
-    metadata: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    chunk_metadata: Mapped[dict | None] = mapped_column("metadata", JSONB, nullable=True)
 
     # Context pointers for retrieval
     previous_chunk_id: Mapped[uuid.UUID | None] = mapped_column(
