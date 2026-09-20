@@ -443,3 +443,11 @@ class InventoryReservation(Base):
 # in RegisteredStudent.wc_stores
 from app.woocommerce.models import WooCommerceStore  # noqa: E402, F401
 
+# Import RAG models to ensure they're registered with SQLAlchemy
+from app.ai.rag_models import (  # noqa: E402, F401
+    KnowledgeBase,
+    RAGDocument,
+    RAGChunk,
+    RAGRetrieval,
+)
+

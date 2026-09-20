@@ -1009,10 +1009,36 @@ class AIService:
         )
 
     async def _execute_task_via_llm(self, task: AIAgentTask, agent: AIAgent) -> dict:
-        """Execute a task through the LLM client."""
+        """Execute a task through the LLM client with optional RAG context."""
         llm_client = get_llm_client()
         prompt = self._build_prompt(task)
         system_prompt = self._build_system_prompt(agent)
+
+        # Check if RAG is enabled in agent config
+        rag_kb_id = None
+        if agent.config and "rag_knowledge_base_id" in agent.config:
+            rag_kb_id = agent.config.get("rag_knowledge_base_id")
+
+        # Augment with RAG context if enabled
+        if rag_kb_id:
+            try:
+                from app.ai.rag_service import RAGService
+                rag_service = RAGService(
+                    db=self.db,
+                    organization_id=self.organization_id,
+                    user_id=self.user_id,
+                )
+                rag_context = await rag_service.build_rag_context(
+                    kb_id=rag_kb_id,
+                    query=prompt,
+                    top_k=5,
+                )
+                if rag_context:
+                    prompt = f"{rag_context}\n\n{prompt}"
+                    task.metadata_ = task.metadata_ or {}
+                    task.metadata_["rag_augmented"] = True
+            except Exception as exc:
+                self.logger.warning("RAG augmentation failed (non-blocking): %s", exc)
 
         response = await llm_client.complete(
             prompt=prompt,
@@ -1035,6 +1061,7 @@ class AIService:
             "provider": response.provider,
             "model": response.model,
             "tokens_used": response.tokens_used,
+            "rag_augmented": task.metadata_.get("rag_augmented", False) if task.metadata_ else False,
         }
 
     async def _execute_task_via_runtime(self, task: AIAgentTask) -> None:

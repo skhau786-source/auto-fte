@@ -59,6 +59,9 @@ from app.export.export_router import router as export_router
 # ── AI Agent Routes (Phase 4) ──
 from app.ai.router import router as ai_router
 
+# ── RAG (Retrieval-Augmented Generation) Routes ──
+from app.ai.rag_router import router as rag_router
+
 # ── Subscription / Billing Routes (Phase 3) ──
 from app.subscriptions.router import router as subscriptions_router
 
@@ -205,6 +208,9 @@ app.include_router(export_router)
 
 # ── AI Agent Routes (Phase 4) ──
 app.include_router(ai_router)
+
+# ── RAG (Retrieval-Augmented Generation) Routes ──
+app.include_router(rag_router)
 
 # ── Subscription / Billing Routes (Phase 3) ──
 app.include_router(subscriptions_router)
