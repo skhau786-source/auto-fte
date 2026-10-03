@@ -54,13 +54,13 @@ class AIAgent(Base):
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     agent_type: Mapped[AgentType] = mapped_column(
-        Enum(AgentType, name="ai_agent_type_enum"),
+        Enum(AgentType, name="ai_agent_type_enum", values_callable=lambda e: [m.value for m in e]),
         nullable=False,
         default=AgentType.CUSTOM,
     )
 
     status: Mapped[AgentStatus] = mapped_column(
-        Enum(AgentStatus, name="ai_agent_status_enum"),
+        Enum(AgentStatus, name="ai_agent_status_enum", values_callable=lambda e: [m.value for m in e]),
         nullable=False,
         default=AgentStatus.INACTIVE,
     )
@@ -126,13 +126,13 @@ class AIAgentTask(Base):
     )
 
     task_type: Mapped[TaskType] = mapped_column(
-        Enum(TaskType, name="ai_task_type_enum"),
+        Enum(TaskType, name="ai_task_type_enum", values_callable=lambda e: [m.value for m in e]),
         nullable=False,
         default=TaskType.CUSTOM,
     )
 
     status: Mapped[TaskStatus] = mapped_column(
-        Enum(TaskStatus, name="ai_task_status_enum"),
+        Enum(TaskStatus, name="ai_task_status_enum", values_callable=lambda e: [m.value for m in e]),
         nullable=False,
         default=TaskStatus.PENDING,
     )

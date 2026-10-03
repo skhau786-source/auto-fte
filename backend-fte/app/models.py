@@ -645,3 +645,6 @@ from app.ai.rag_models import (  # noqa: E402, F401
     RAGChunk,
     RAGRetrieval,
 )
+
+# Support chat handoffs (registered with SQLAlchemy metadata)
+from app.support_chat.models import SupportHandoff  # noqa: E402, F401

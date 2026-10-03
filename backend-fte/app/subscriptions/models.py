@@ -150,12 +150,12 @@ class Subscription(Base):
     )
 
     plan: Mapped[PlanTier] = mapped_column(
-        Enum(PlanTier, name="plan_tier_enum"),
+        Enum(PlanTier, name="plan_tier_enum", values_callable=lambda e: [m.value for m in e]),
         default=PlanTier.FREE,
         nullable=False,
     )
     status: Mapped[SubscriptionStatus] = mapped_column(
-        Enum(SubscriptionStatus, name="subscription_status_enum"),
+        Enum(SubscriptionStatus, name="subscription_status_enum", values_callable=lambda e: [m.value for m in e]),
         default=SubscriptionStatus.ACTIVE,
         nullable=False,
     )

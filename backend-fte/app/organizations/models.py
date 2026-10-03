@@ -230,7 +230,7 @@ class OrganizationMember(Base):
     )
 
     role: Mapped[MembershipRole] = mapped_column(
-        Enum(MembershipRole, name="membership_role_enum"),
+        Enum(MembershipRole, name="membership_role_enum", values_callable=lambda e: [m.value for m in e]),
         default=MembershipRole.VIEWER,
         nullable=False,
     )
