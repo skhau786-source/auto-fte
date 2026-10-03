@@ -43,7 +43,7 @@ import {
   Bell,
   Activity,
 } from "lucide-react";
-import { InteractiveRobot } from "./components/InteractiveRobot";
+import { InteractiveRobot } from "../components/InteractiveRobot";
 
 // --- MOCK DATA ---
 const MOCK_PRODUCTS = [
