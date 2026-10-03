@@ -39,19 +39,33 @@ def _make_mock_db(variant=None):
     db = AsyncMock()
     result = MagicMock()
     result.scalar_one_or_none.return_value = variant
+    result.scalar.return_value = 0  # For _get_total_reserved_quantity (uses scalar, returns 0 for no prior reservations)
     db.execute.return_value = result
     return db
 
 
 def _db_with_sequential(*scalar_values):
-    """db.execute returns each result in order (scalar_one_or_none)."""
+    """db.execute returns each result in order (scalar_one_or_none or scalar), then returns last value."""
     db = AsyncMock()
     results = []
     for value in scalar_values:
         r = MagicMock()
         r.scalar_one_or_none.return_value = value
+        r.scalar.return_value = value  # For _get_total_reserved_quantity (uses scalar)
         results.append(r)
-    db.execute.side_effect = results
+
+    # Create a generator that yields results then repeats the last one
+    def result_generator():
+        for r in results:
+            yield r
+        # After exhausting the list, keep returning the last result
+        while True:
+            yield results[-1] if results else MagicMock()
+
+    db.execute.side_effect = result_generator()
+    db.add = MagicMock()  # db.add is synchronous, not async
+    db.commit = AsyncMock()
+    db.flush = AsyncMock()
     return db
 
 
@@ -140,8 +154,9 @@ class TestReserveStock:
     async def test_reserve_success(self):
         store = _make_store()
         variant = _make_variant(store_id=store.id, quantity=100)
-        # Call 1: locked variant; Call 2: duplicate check returns None
-        db = _db_with_sequential(variant, None)
+        # Call 1: locked variant; Call 2: duplicate check returns None;
+        # Call 3: total reserved = 0; Call 4: _check_oversell_alert's _get_variant = variant
+        db = _db_with_sequential(variant, None, 0, variant)
         service = ReservationService(db=db, store=store)
 
         reservation = await service.reserve_stock(
@@ -199,6 +214,7 @@ class TestReserveStock:
         store = _make_store()
         variant = _make_variant(store_id=store.id, quantity=50)
         # Call 1: locked variant; Call 2: duplicate check finds an existing reservation
+        # DuplicateReservationError is raised before the oversell check, so no Call 3/4
         existing = _make_reservation(store_id=store.id)
         db = _db_with_sequential(variant, existing)
         service = ReservationService(db=db, store=store)

@@ -55,6 +55,8 @@ import {
 } from "@/lib/api";
 import InventoryHub from "./InventoryHub";
 import AIAgentsHub from "./AIAgentsHub";
+import { RevenueAnalytics } from "./RevenueAnalytics";
+import { LanguageSwitcher } from "./LanguageSwitcher";
 
 // ═══════════════════════════════════════════════════════════════════
 // Helpers (plain language)
@@ -125,13 +127,13 @@ function stockTone(p: WooCommerceProduct): StockTone {
   return "in";
 }
 
-function stockLabel(p: WooCommerceProduct): { text: string; cls: string } {
+function stockLabel(p: WooCommerceProduct): { icon: React.ReactNode; text: string; cls: string } {
   const tone = stockTone(p);
   if (tone === "out")
-    return { text: "🔴 Out of Stock", cls: "bg-rose-50 text-rose-700 border-rose-100" };
+    return { icon: <AlertCircle className="w-3.5 h-3.5 text-rose-500" />, text: "Out of Stock", cls: "bg-rose-50 text-rose-700 border-rose-100" };
   if (tone === "low")
-    return { text: "🟡 Low Stock", cls: "bg-amber-50 text-amber-700 border-amber-100" };
-  return { text: "🟢 In Stock", cls: "bg-emerald-50 text-emerald-700 border-emerald-100" };
+    return { icon: <AlertTriangle className="w-3.5 h-3.5 text-amber-500" />, text: "Low Stock", cls: "bg-amber-50 text-amber-700 border-amber-100" };
+  return { icon: <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />, text: "In Stock", cls: "bg-emerald-50 text-emerald-700 border-emerald-100" };
 }
 
 function storeName(stores: WooCommerceStore[], storeId: string): string {
@@ -366,6 +368,7 @@ export default function BusinessDashboard({ userEmail, onLogout }: BusinessDashb
                 ))}
               </select>
             )}
+            <LanguageSwitcher className="hidden sm:flex" />
             <button
               onClick={refreshAll}
               title="Refresh data"
@@ -597,33 +600,33 @@ function DashboardPage({ storeId, hasStores, storesLoading, storeName, onNavigat
   const { stats } = dash;
   const inStock = Math.max(stats.total_products - stats.low_stock_count - stats.out_of_stock_count, 0);
 
-  const attention: { icon: string; tone: string; text: string; action: string; tab: TabId; filter?: ProductFilter }[] = [];
+  const attention: { icon: React.ReactNode; tone: string; text: string; action: string; tab: TabId; filter?: ProductFilter }[] = [];
   if (stats.low_stock_count > 0)
     attention.push({
-      icon: "⚠️", tone: "bg-amber-50 border-amber-100", text: `${stats.low_stock_count} product${stats.low_stock_count === 1 ? " is" : "s are"} low in stock`,
+      icon: <AlertTriangle className="w-5 h-5 text-amber-500" />, tone: "bg-amber-50 border-amber-100", text: `${stats.low_stock_count} product${stats.low_stock_count === 1 ? " is" : "s are"} low in stock`,
       action: "View Products", tab: "products", filter: "low",
     });
   if (stats.out_of_stock_count > 0)
     attention.push({
-      icon: "❌", tone: "bg-rose-50 border-rose-100", text: `${stats.out_of_stock_count} product${stats.out_of_stock_count === 1 ? " is" : "s are"} out of stock`,
+      icon: <AlertCircle className="w-5 h-5 text-rose-500" />, tone: "bg-rose-50 border-rose-100", text: `${stats.out_of_stock_count} product${stats.out_of_stock_count === 1 ? " is" : "s are"} out of stock`,
       action: "View Products", tab: "products", filter: "out",
     });
   if (stats.active_alerts > 0)
     attention.push({
-      icon: "🔔", tone: "bg-violet-50 border-violet-100", text: `You have ${stats.active_alerts} open alert${stats.active_alerts === 1 ? "" : "s"}`,
+      icon: <Bell className="w-5 h-5 text-violet-500" />, tone: "bg-violet-50 border-violet-100", text: `You have ${stats.active_alerts} open alert${stats.active_alerts === 1 ? "" : "s"}`,
       action: "View Alerts", tab: "alerts",
     });
   if (stats.last_sync_at) {
     const hours = (Date.now() - new Date(stats.last_sync_at).getTime()) / 3600000;
     if (hours > 3)
       attention.push({
-        icon: "🔄", tone: "bg-slate-50 border-slate-200", text: "Your store information hasn't updated recently",
+        icon: <RefreshCw className="w-5 h-5 text-slate-400" />, tone: "bg-slate-50 border-slate-200", text: "Your store information hasn't updated recently",
         action: "Check Store", tab: "stores",
       });
   }
   if (attention.length === 0)
     attention.push({
-      icon: "✅", tone: "bg-emerald-50 border-emerald-100", text: "Everything looks good — nothing needs your attention right now",
+      icon: <CheckCircle2 className="w-5 h-5 text-emerald-500" />, tone: "bg-emerald-50 border-emerald-100", text: "Everything looks good — nothing needs your attention right now",
       action: "View Products", tab: "products",
     });
 
@@ -659,7 +662,7 @@ function DashboardPage({ storeId, hasStores, storesLoading, storeName, onNavigat
             {attention.map((a, i) => (
               <div key={i} className={`flex items-center justify-between gap-3 p-3 rounded-xl border ${a.tone} hover:shadow-sm transition-shadow`}>
                 <div className="flex items-center gap-2.5 min-w-0">
-                  <span className="text-lg">{a.icon}</span>
+                  <span className="flex shrink-0 items-center justify-center">{a.icon}</span>
                   <p className="text-xs font-medium text-slate-700">{a.text}</p>
                 </div>
                 <button
@@ -848,7 +851,7 @@ function ProductsPage({ storeId, hasStores, storesLoading, storeName, filter, on
                       <td className="px-4 py-3 text-slate-500">{p.sku || "—"}</td>
                       <td className="px-4 py-3 font-semibold text-slate-800">{p.stock_quantity ?? "N/A"}</td>
                       <td className="px-4 py-3">
-                        <span className={`px-2.5 py-1 text-[11px] font-bold rounded-full border ${status.cls}`}>{status.text}</span>
+                        <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-bold rounded-full border ${status.cls}`}>{status.icon} {status.text}</span>
                       </td>
                       <td className="px-4 py-3 text-slate-500">{storeName}</td>
                       <td className="px-4 py-3 text-slate-400 hidden md:table-cell">{timeAgo(p.last_synced_at)}</td>
@@ -1532,8 +1535,13 @@ function ReportsPage({ storeId, hasStores, storesLoading, storeName, onNavigate 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <StatCard label="Products" value={stats.total_products} icon={<Package className="w-5 h-5" />} tone="from-violet-500 to-indigo-600" />
         <StatCard label="Units in stock" value={totalUnits} icon={<TrendingUp className="w-5 h-5" />} tone="from-blue-400 to-cyan-500" />
-        <StatCard label="Inventory value" value={money(stats.total_revenue ? "" : "")} icon={<DollarSign className="w-5 h-5" />} tone="from-emerald-400 to-teal-500" sub="Revenue to date" />
+        <StatCard label="Total revenue" value={money(stats.total_revenue)} icon={<DollarSign className="w-5 h-5" />} tone="from-emerald-400 to-teal-500" sub="All time" />
         <StatCard label="Orders" value={stats.total_orders} icon={<ShoppingBag className="w-5 h-5" />} tone="from-amber-400 to-orange-500" />
+      </div>
+
+      {/* Revenue Dashboard / Advanced Analytics (Phase 3) */}
+      <div className="p-5 rounded-2xl bg-white/70 border border-slate-200/60">
+        <RevenueAnalytics storeId={storeId} storeName={storeName} hasStores={hasStores} storesLoading={storesLoading} />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">

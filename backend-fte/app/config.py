@@ -155,6 +155,18 @@ class Settings(BaseSettings):
     SMTP_PASSWORD: str = ""
     EMAILS_FROM_EMAIL: str = ""
 
+    # ═══════════════════════════════════════════════════════════════
+    # Stripe (Payments) — from kulsoom
+    # ═══════════════════════════════════════════════════════════════
+    # Left blank in dev/test on purpose — SubscriptionService raises a
+    # clear StripeNotConfiguredError at call time if a billing endpoint
+    # is actually invoked without these set, rather than failing at
+    # import/startup (billing is an optional feature per-deployment).
+    STRIPE_SECRET_KEY: str = ""
+    STRIPE_WEBHOOK_SECRET: str = ""
+    STRIPE_SUCCESS_URL: str = "http://localhost:3000/billing/success"
+    STRIPE_CANCEL_URL: str = "http://localhost:3000/billing/cancel"
+
     @field_validator("LOG_LEVEL")
     @classmethod
     def validate_log_level(cls, v: str) -> str:

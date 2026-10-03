@@ -14,9 +14,10 @@ from datetime import datetime, timezone
 from typing import Optional
 
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func
+from sqlalchemy import select, func, or_, and_
 
 from app.ai.models import AIAgent, AIAgentTask, AIAgentAction
+from app.organizations.models import Team
 from app.ai.constants import (
     AgentType, AgentStatus, TaskStatus, TaskType,
     MAX_CONCURRENT_TASKS_PER_AGENT,
@@ -107,6 +108,7 @@ class AIService:
         # Log action
         await self._log_action(
             agent_id=agent.id,
+            team_id=agent.team_id,
             action_type="agent_created",
             target_resource="agent",
             target_id=str(agent.id),
@@ -185,6 +187,7 @@ class AIService:
             # Log action
             await self._log_action(
                 agent_id=agent.id,
+                team_id=agent.team_id,
                 action_type="agent_updated",
                 target_resource="agent",
                 target_id=str(agent.id),
@@ -210,6 +213,7 @@ class AIService:
         await self.db.refresh(agent)
         await self._log_action(
             agent_id=agent.id,
+            team_id=agent.team_id,
             action_type="agent_activated",
             target_resource="agent",
             target_id=str(agent.id),
@@ -228,6 +232,7 @@ class AIService:
         # Log action
         await self._log_action(
             agent_id=agent.id,
+            team_id=agent.team_id,
             action_type="agent_deactivated",
             target_resource="agent",
             target_id=str(agent.id),
@@ -306,6 +311,7 @@ class AIService:
         # Log action
         await self._log_action(
             agent_id=agent_id,
+            team_id=agent.team_id,
             task_id=task.id,
             action_type="task_submitted",
             target_resource="task",
@@ -492,6 +498,7 @@ class AIService:
             validated_count = len([a for a in plan.actions if a.status != ActionStatus.BLOCKED])
             await self._log_action(
                 agent_id=agent_id,
+                team_id=agent.team_id,
                 task_id=task.id,
                 action_type="nl_task_planned",
                 target_resource="task",
@@ -525,6 +532,7 @@ class AIService:
 
             await self._log_action(
                 agent_id=agent_id,
+                team_id=agent.team_id,
                 task_id=task.id,
                 action_type="nl_task_planning_failed",
                 target_resource="task",
@@ -561,6 +569,32 @@ class AIService:
             user_id=self.user_id,
         )
         return await team_svc.get_user_accessible_agent_ids()
+
+    async def get_visible_team_ids(self) -> set[uuid.UUID]:
+        """
+        Return the set of team IDs the current user may see audit
+        actions for.
+
+        Mirrors get_visible_agent_ids(): internal/system execution (no
+        user_id) is unrestricted; otherwise delegates to TeamService for
+        the same OWNER/ADMIN-sees-all-teams, member-sees-own-team rule
+        used everywhere else team visibility is decided. Used by
+        get_agent_actions() to scope team-level audit rows (agent_id
+        IS NULL, team_id set) alongside the existing agent-based scoping.
+        """
+        if self.user_id is None:
+            result = await self.db.execute(
+                select(Team.id).where(Team.organization_id == self.organization_id)
+            )
+            return set(result.scalars().all())
+
+        from app.ai.team_service import TeamService
+        team_svc = TeamService(
+            db=self.db,
+            organization_id=self.organization_id,
+            user_id=self.user_id,
+        )
+        return await team_svc.get_user_accessible_team_ids()
 
     async def check_task_access(
         self,
@@ -680,6 +714,7 @@ class AIService:
         # Log action
         await self._log_action(
             agent_id=task.agent_id,
+            team_id=agent.team_id,
             task_id=task.id,
             action_type="task_approved",
             target_resource="task",
@@ -734,6 +769,7 @@ class AIService:
         # Log action
         await self._log_action(
             agent_id=task.agent_id,
+            team_id=agent.team_id,
             task_id=task.id,
             action_type="task_rejected",
             target_resource="task",
@@ -763,7 +799,27 @@ class AIService:
         agent_id: Optional[uuid.UUID] = None,
         task_id: Optional[uuid.UUID] = None,
     ) -> list[AIAgentAction]:
-        """Get audit trail for agent actions."""
+        """
+        Get audit trail for agent actions.
+
+        Applies team-level filtering at the query level (using the
+        indexed team_id column, mirroring how agent_id/task_id are
+        already filtered in SQL) so a user only ever receives actions
+        they're authorized to see — never another team's audit trail.
+        Internal/system execution (user_id is None) is unrestricted, same
+        as get_visible_agent_ids()/get_visible_team_ids().
+
+        A row is visible if:
+        - its agent_id is one the user can access (get_visible_agent_ids), OR
+        - its team_id is one the user can access (get_visible_team_ids), OR
+        - it has neither an agent nor a team (org-level action) — visible
+          to all org members, mirroring the teamless-agent behavior used
+          elsewhere in this module.
+
+        team_id is never accepted from the caller/client here — visibility
+        is always derived from the authenticated user's own org/team
+        membership via TeamService, never trusted from request input.
+        """
         query = select(AIAgentAction).where(
             AIAgentAction.organization_id == self.organization_id,
         )
@@ -771,6 +827,21 @@ class AIService:
             query = query.where(AIAgentAction.agent_id == agent_id)
         if task_id:
             query = query.where(AIAgentAction.task_id == task_id)
+
+        if self.user_id is not None:
+            visible_agent_ids = await self.get_visible_agent_ids()
+            visible_team_ids = await self.get_visible_team_ids()
+            query = query.where(
+                or_(
+                    AIAgentAction.agent_id.in_(visible_agent_ids),
+                    AIAgentAction.team_id.in_(visible_team_ids),
+                    and_(
+                        AIAgentAction.agent_id.is_(None),
+                        AIAgentAction.team_id.is_(None),
+                    ),
+                )
+            )
+
         query = query.order_by(AIAgentAction.created_at.desc())
 
         result = await self.db.execute(query)
@@ -816,6 +887,7 @@ class AIService:
         # Log action
         await self._log_action(
             agent_id=agent.id,
+            team_id=agent.team_id,
             task_id=task.id,
             action_type="task_started",
             target_resource="task",
@@ -856,6 +928,7 @@ class AIService:
             # Log action
             await self._log_action(
                 agent_id=agent.id,
+                team_id=agent.team_id,
                 task_id=task.id,
                 action_type="task_completed" if task.status == TaskStatus.COMPLETED else "task_failed",
                 target_resource="task",
@@ -901,6 +974,7 @@ class AIService:
 
             await self._log_action(
                 agent_id=agent.id,
+                team_id=agent.team_id,
                 task_id=task.id,
                 action_type="task_failed",
                 target_resource="task",
@@ -935,10 +1009,36 @@ class AIService:
         )
 
     async def _execute_task_via_llm(self, task: AIAgentTask, agent: AIAgent) -> dict:
-        """Execute a task through the LLM client."""
+        """Execute a task through the LLM client with optional RAG context."""
         llm_client = get_llm_client()
         prompt = self._build_prompt(task)
         system_prompt = self._build_system_prompt(agent)
+
+        # Check if RAG is enabled in agent config
+        rag_kb_id = None
+        if agent.config and "rag_knowledge_base_id" in agent.config:
+            rag_kb_id = agent.config.get("rag_knowledge_base_id")
+
+        # Augment with RAG context if enabled
+        if rag_kb_id:
+            try:
+                from app.ai.rag_service import RAGService
+                rag_service = RAGService(
+                    db=self.db,
+                    organization_id=self.organization_id,
+                    user_id=self.user_id,
+                )
+                rag_context = await rag_service.build_rag_context(
+                    kb_id=rag_kb_id,
+                    query=prompt,
+                    top_k=5,
+                )
+                if rag_context:
+                    prompt = f"{rag_context}\n\n{prompt}"
+                    task.metadata_ = task.metadata_ or {}
+                    task.metadata_["rag_augmented"] = True
+            except Exception as exc:
+                self.logger.warning("RAG augmentation failed (non-blocking): %s", exc)
 
         response = await llm_client.complete(
             prompt=prompt,
@@ -961,6 +1061,7 @@ class AIService:
             "provider": response.provider,
             "model": response.model,
             "tokens_used": response.tokens_used,
+            "rag_augmented": task.metadata_.get("rag_augmented", False) if task.metadata_ else False,
         }
 
     async def _execute_task_via_runtime(self, task: AIAgentTask) -> None:
@@ -997,6 +1098,7 @@ class AIService:
 
         await self._log_action(
             agent_id=agent.id,
+            team_id=agent.team_id,
             task_id=task.id,
             action_type="runtime_execution_started",
             target_resource="task",
@@ -1100,6 +1202,7 @@ class AIService:
             # Log completion
             await self._log_action(
                 agent_id=agent.id,
+                team_id=agent.team_id,
                 task_id=task.id,
                 action_type="runtime_execution_completed" if task.status == TaskStatus.COMPLETED else "runtime_execution_failed",
                 target_resource="task",
@@ -1150,6 +1253,7 @@ class AIService:
 
             await self._log_action(
                 agent_id=agent.id,
+                team_id=agent.team_id,
                 task_id=task.id,
                 action_type="runtime_execution_failed",
                 target_resource="task",
@@ -1193,6 +1297,7 @@ class AIService:
         # Log capability request
         await self._log_action(
             agent_id=agent.id,
+            team_id=agent.team_id,
             task_id=task.id,
             action_type="capability_executed",
             target_resource="capability",
@@ -1238,6 +1343,7 @@ class AIService:
         # Log completion/failure
         await self._log_action(
             agent_id=agent.id,
+            team_id=agent.team_id,
             task_id=task.id,
             action_type="capability_completed" if result.get("status") == "success" else "capability_failed",
             target_resource="capability",
@@ -1307,6 +1413,12 @@ class AIService:
         await self.db.refresh(child_task)
 
         # Log action
+        # team_id intentionally omitted: this event bridges the source
+        # agent (parent_task.agent_id, logged as agent_id below) and
+        # target_agent, which may belong to different teams. Neither
+        # loaded object here is guaranteed to match agent_id's team, and
+        # get_agent_actions() already scopes this row correctly via
+        # agent_id (get_visible_agent_ids() is team-aware) without it.
         await self._log_action(
             agent_id=parent_task.agent_id,
             task_id=child_task.id,
@@ -1351,6 +1463,7 @@ class AIService:
 
         await self._log_action(
             agent_id=agent.id,
+            team_id=agent.team_id,
             task_id=task.id,
             action_type="child_task_started",
             target_resource="task",
@@ -1397,6 +1510,7 @@ class AIService:
             # Log and dispatch events
             await self._log_action(
                 agent_id=agent.id,
+                team_id=agent.team_id,
                 task_id=task.id,
                 action_type="child_task_completed" if task.status == TaskStatus.COMPLETED else "child_task_failed",
                 target_resource="task",
@@ -1434,6 +1548,7 @@ class AIService:
 
             await self._log_action(
                 agent_id=agent.id,
+                team_id=agent.team_id,
                 task_id=task.id,
                 action_type="child_task_failed",
                 target_resource="task",
@@ -1579,10 +1694,22 @@ class AIService:
         details: Optional[dict] = None,
         result_status: str = "success",
         task_id: Optional[uuid.UUID] = None,
+        team_id: Optional[uuid.UUID] = None,
     ) -> AIAgentAction:
-        """Create an immutable audit log entry."""
+        """
+        Create an immutable audit log entry.
+
+        team_id should be the *agent's own* team_id (e.g. agent.team_id),
+        passed by the caller from an already-loaded AIAgent — never a
+        client-supplied value, and never re-derived here via an extra
+        query (this method is called from many hot paths whose tests
+        assert exact db.execute() call counts). Omit it only when no
+        single team can be attributed to the action; the action then
+        remains scoped by agent_id alone in get_agent_actions().
+        """
         action = AIAgentAction(
             agent_id=agent_id,
+            team_id=team_id,
             task_id=task_id,
             organization_id=self.organization_id,
             action_type=action_type,

@@ -122,6 +122,34 @@ class ReservationRepository:
         )
         return result.scalar_one_or_none()
 
+    async def get_expired_ids(
+        self, now: datetime, limit: int = 500,
+    ) -> list[uuid.UUID]:
+        """
+        IDs of ACTIVE/PENDING reservations across all stores whose
+        expires_at has passed.
+
+        Cross-store on purpose — the sweep is an internal maintenance job
+        with no per-request store context (unlike every other method on
+        this repository, which is scoped by the caller's store).
+        Committed/released/expired/cancelled reservations never match
+        (status filter), and reservations with no expiry (expires_at IS
+        NULL) never match either — they were never meant to auto-expire.
+        """
+        result = await self.db.execute(
+            select(InventoryReservation.id)
+            .where(
+                InventoryReservation.status.in_(
+                    [ReservationStatus.ACTIVE, ReservationStatus.PENDING]
+                ),
+                InventoryReservation.expires_at.isnot(None),
+                InventoryReservation.expires_at <= now,
+            )
+            .order_by(InventoryReservation.expires_at.asc())
+            .limit(limit)
+        )
+        return list(result.scalars().all())
+
 
 class ReservationService:
     """Store-level inventory reservation orchestration."""
@@ -174,6 +202,22 @@ class ReservationService:
                 available=available,
             )
 
+        # CROSS-CHANNEL AWARENESS: Calculate total active reservations
+        # to provide visibility into multi-channel coordination pressure.
+        # Note: inventory_quantity is already decremented by prior reservations,
+        # so the main check (available >= quantity) already prevents oversell.
+        # This call provides logging/alerting for operational awareness.
+        total_reserved = await self._get_total_reserved_quantity(
+            variant_id, exclude_order_id=order_id,
+        )
+
+        if total_reserved > 0:
+            self.logger.debug(
+                "Cross-channel pressure for variant %s: "
+                "%d units reserved (Shopify/WooCommerce), available=%d, requested=%d",
+                variant_id, total_reserved, available, quantity,
+            )
+
         # Duplicate active reservation guard (per variant + order)
         if order_id:
             existing = await self.repo.get_active_for_variant_order(
@@ -220,9 +264,13 @@ class ReservationService:
         await self.db.refresh(reservation)
         await self._invalidate_cache()
 
+        # Check for near-oversell scenario (useful for cross-channel coordination)
+        total_reserved_after = await self._get_total_reserved_quantity(variant_id)
+        await self._check_oversell_alert(variant_id, total_reserved_after)
+
         self.logger.info(
-            "Reserved %d units of variant %s (order=%s, reservation=%s)",
-            quantity, variant_id, order_id, reservation.id,
+            "Reserved %d units of variant %s (order=%s, reservation=%s, total_reserved=%d)",
+            quantity, variant_id, order_id, reservation.id, total_reserved_after,
         )
         return reservation
 
@@ -407,6 +455,93 @@ class ReservationService:
     # INTERNAL HELPERS
     # ═══════════════════════════════════════════════════════════════
 
+    async def _get_total_reserved_quantity(
+        self,
+        variant_id: uuid.UUID,
+        exclude_order_id: Optional[str] = None,
+    ) -> int:
+        """
+        Calculate total quantity already reserved for a variant across all sources.
+
+        This helps detect cross-channel oversell scenarios. For example:
+        - Shopify order for 3 units
+        - WooCommerce order for 3 units
+        - Both target same variant with 5 units in stock
+
+        Without this check, both could succeed if timing is unfortunate.
+
+        Args:
+            variant_id: The variant to check
+            exclude_order_id: If provided, don't count reservations for this order
+                (used to exclude the current order being processed)
+
+        Returns:
+            Total quantity in ACTIVE or PENDING reservations
+        """
+        conditions = [
+            InventoryReservation.variant_id == variant_id,
+            InventoryReservation.store_id == self.store.id,
+            InventoryReservation.status.in_(
+                [ReservationStatus.ACTIVE, ReservationStatus.PENDING]
+            ),
+        ]
+
+        if exclude_order_id:
+            conditions.append(InventoryReservation.order_id != exclude_order_id)
+
+        result = await self.db.execute(
+            select(func.coalesce(func.sum(InventoryReservation.quantity), 0)).where(
+                *conditions
+            )
+        )
+        total = result.scalar() or 0
+        return int(total)
+
+    async def _check_oversell_alert(
+        self,
+        variant_id: uuid.UUID,
+        total_reserved: int,
+    ) -> None:
+        """
+        Alert if variant is close to being over-allocated.
+
+        Oversell alert thresholds:
+        - 75%: warning (e.g., 10 units in stock, 7.5 reserved)
+        - 90%: critical (e.g., 10 units in stock, 9 reserved)
+        - 100%+: error (over-allocated; this shouldn't happen if safeguards work)
+
+        Used for cross-channel visibility — operations can see when Shopify +
+        WooCommerce combined are consuming inventory rapidly.
+        """
+        variant = await self._get_variant(variant_id)
+        if not variant:
+            return
+
+        available = variant.inventory_quantity
+        if available <= 0:
+            return
+
+        utilization = (total_reserved / available) if available > 0 else 0
+
+        if utilization >= 1.0:
+            self.logger.error(
+                "🚨 OVERSELL ALERT: Variant %s is 100%% allocated "
+                "(available=%d, reserved=%d, utilization=%.1f%%)",
+                variant_id, available, total_reserved, utilization * 100,
+            )
+        elif utilization >= 0.9:
+            self.logger.warning(
+                "⚠️  CRITICAL: Variant %s is 90%%+ allocated "
+                "(available=%d, reserved=%d, utilization=%.1f%%)",
+                variant_id, available, total_reserved, utilization * 100,
+            )
+        elif utilization >= 0.75:
+            self.logger.warning(
+                "⚠️  WARNING: Variant %s is 75%%+ allocated "
+                "(available=%d, reserved=%d, utilization=%.1f%% — cross-channel pressure)",
+                variant_id, available, total_reserved, utilization * 100,
+            )
+
     async def _get_locked_variant(
         self, variant_id: uuid.UUID,
     ) -> Optional[ProductVariant]:
@@ -467,3 +602,102 @@ class ReservationService:
     ) -> None:
         if str(reservation.store_id) != str(self.store.id):
             raise InvalidStoreOwnershipError("Reservation", str(reservation.id))
+
+
+# ═══════════════════════════════════════════════════════════════════
+# AUTOMATIC EXPIRATION SWEEP
+# ═══════════════════════════════════════════════════════════════════
+#
+# ReservationService above is scoped to a single store (every method
+# assumes a request made on behalf of that store's owner). The sweep
+# below is a system-level maintenance job with no such context — it
+# runs across every store's reservations, the same way the other jobs
+# in app/scheduler/scheduler_service.py iterate all active stores.
+
+async def expire_stale_reservations(
+    db: AsyncSession,
+    now: Optional[datetime] = None,
+    limit: int = 500,
+) -> list[uuid.UUID]:
+    """
+    Find every ACTIVE/PENDING reservation whose expires_at has passed and
+    expire it: restore the reserved stock to the variant and mark the
+    reservation EXPIRED, exactly like ReservationService.expire_reservation
+    does for a single reservation — just applied in bulk, automatically,
+    across all stores.
+
+    Idempotent and safe to run repeatedly / concurrently:
+    - Candidates are first listed without a lock, then each one is
+      re-fetched with `SELECT ... FOR UPDATE` and re-checked (still
+      ACTIVE/PENDING, still actually past expires_at) immediately before
+      acting on it. A reservation already committed, released, expired,
+      or cancelled by the time it's re-checked — whether by a user
+      action or by another overlapping sweep run — is left untouched
+      instead of being double-processed (which would double-credit
+      stock back to the variant).
+    - Each reservation is committed in its own transaction (mirroring
+      every other method on ReservationService), so one bad row can
+      never block or roll back the others, and a crash mid-sweep leaves
+      already-processed rows correctly committed rather than reverted.
+    """
+    now = now or datetime.now(timezone.utc)
+    repo = ReservationRepository(db)
+    expired_ids: list[uuid.UUID] = []
+
+    candidate_ids = await repo.get_expired_ids(now, limit=limit)
+
+    for reservation_id in candidate_ids:
+        try:
+            result = await db.execute(
+                select(InventoryReservation)
+                .where(InventoryReservation.id == reservation_id)
+                .with_for_update()
+            )
+            reservation = result.scalar_one_or_none()
+
+            # Re-check under lock: someone else (a user action or a
+            # concurrent sweep) may have already handled this row.
+            if reservation is None:
+                continue
+            if reservation.status not in (
+                ReservationStatus.ACTIVE, ReservationStatus.PENDING,
+            ):
+                continue
+            if reservation.expires_at is None or reservation.expires_at > now:
+                continue
+
+            store_id = reservation.store_id
+            if reservation.variant_id:
+                variant_result = await db.execute(
+                    select(ProductVariant)
+                    .where(ProductVariant.id == reservation.variant_id)
+                    .with_for_update()
+                )
+                variant = variant_result.scalar_one_or_none()
+                if variant:
+                    variant.inventory_quantity += reservation.quantity
+
+            reservation.status = ReservationStatus.EXPIRED
+            reservation.released_at = now
+            await db.commit()
+            expired_ids.append(reservation_id)
+
+            try:
+                await aggregation_cache.invalidate_store(store_id)
+            except Exception as cache_exc:
+                logger.warning(
+                    "Aggregation cache invalidation failed for store %s: %s",
+                    store_id, cache_exc,
+                )
+        except Exception:
+            logger.exception(
+                "Failed to auto-expire reservation %s — will retry on next sweep",
+                reservation_id,
+            )
+            await db.rollback()
+            continue
+
+    if expired_ids:
+        logger.info("Auto-expired %d stale reservation(s)", len(expired_ids))
+
+    return expired_ids

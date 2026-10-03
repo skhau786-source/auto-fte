@@ -76,14 +76,15 @@ function timeAgo(iso: string | null | undefined): string {
 }
 
 function variantStatus(v: { inventory_quantity: number; low_stock_threshold?: number | null }): {
+  icon: React.ReactNode;
   text: string;
   cls: string;
 } {
   const qty = v.inventory_quantity;
   const threshold = v.low_stock_threshold ?? 10;
-  if (qty <= 0) return { text: "🔴 Out of Stock", cls: "bg-rose-50 text-rose-700 border-rose-100" };
-  if (qty <= threshold) return { text: "🟡 Low Stock", cls: "bg-amber-50 text-amber-700 border-amber-100" };
-  return { text: "🟢 In Stock", cls: "bg-emerald-50 text-emerald-700 border-emerald-100" };
+  if (qty <= 0) return { icon: <AlertCircle className="w-3.5 h-3.5 text-rose-500" />, text: "Out of Stock", cls: "bg-rose-50 text-rose-700 border-rose-100" };
+  if (qty <= threshold) return { icon: <AlertTriangle className="w-3.5 h-3.5 text-amber-500" />, text: "Low Stock", cls: "bg-amber-50 text-amber-700 border-amber-100" };
+  return { icon: <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />, text: "In Stock", cls: "bg-emerald-50 text-emerald-700 border-emerald-100" };
 }
 
 function isNoStore(err: unknown): boolean {
@@ -351,15 +352,15 @@ function OverviewPage() {
   if (error) return <ErrorBlock message={error} onRetry={load} />;
   if (!unified || !agg) return <ErrorBlock message="No inventory data available yet." onRetry={load} />;
 
-  const attention: { icon: string; tone: string; text: string }[] = [];
+  const attention: { icon: React.ReactNode; tone: string; text: string }[] = [];
   if (unified.inventory.low_stock_count > 0)
-    attention.push({ icon: "🟡", tone: "bg-amber-50 border-amber-100", text: `${unified.inventory.low_stock_count} product${unified.inventory.low_stock_count === 1 ? "" : "s"} need restocking` });
+    attention.push({ icon: <AlertTriangle className="w-5 h-5 text-amber-500" />, tone: "bg-amber-50 border-amber-100", text: `${unified.inventory.low_stock_count} product${unified.inventory.low_stock_count === 1 ? "" : "s"} need restocking` });
   if (unified.inventory.out_of_stock_count > 0)
-    attention.push({ icon: "🔴", tone: "bg-rose-50 border-rose-100", text: `${unified.inventory.out_of_stock_count} product${unified.inventory.out_of_stock_count === 1 ? "" : "s"} are out of stock` });
+    attention.push({ icon: <AlertCircle className="w-5 h-5 text-rose-500" />, tone: "bg-rose-50 border-rose-100", text: `${unified.inventory.out_of_stock_count} product${unified.inventory.out_of_stock_count === 1 ? "" : "s"} are out of stock` });
   if (unified.reservation.active_reservations > 0)
-    attention.push({ icon: "🔒", tone: "bg-blue-50 border-blue-100", text: `${unified.reservation.active_reservations} active reservation${unified.reservation.active_reservations === 1 ? "" : "s"} on your stock` });
+    attention.push({ icon: <CalendarClock className="w-5 h-5 text-blue-500" />, tone: "bg-blue-50 border-blue-100", text: `${unified.reservation.active_reservations} active reservation${unified.reservation.active_reservations === 1 ? "" : "s"} on your stock` });
   if (attention.length === 0)
-    attention.push({ icon: "✅", tone: "bg-emerald-50 border-emerald-100", text: "Everything looks healthy — no stock alerts right now" });
+    attention.push({ icon: <CheckCircle2 className="w-5 h-5 text-emerald-500" />, tone: "bg-emerald-50 border-emerald-100", text: "Everything looks healthy — no stock alerts right now" });
 
   return (
     <div className="space-y-6">
@@ -380,7 +381,7 @@ function OverviewPage() {
           <div className="space-y-2.5">
             {attention.map((a, i) => (
               <div key={i} className={`flex items-center gap-2.5 p-3 rounded-xl border ${a.tone}`}>
-                <span className="text-lg">{a.icon}</span>
+                <span className="flex shrink-0 items-center justify-center">{a.icon}</span>
                 <p className="text-xs font-medium text-slate-700">{a.text}</p>
               </div>
             ))}
@@ -560,10 +561,10 @@ function ProductsPage({ variantName }: {
                 {products.map((p) => {
                   const totalQty = p.variants.reduce((s, v) => s + v.inventory_quantity, 0);
                   const worst = p.variants.some((v) => v.inventory_quantity <= 0)
-                    ? { text: "🔴 Out of Stock", cls: "bg-rose-50 text-rose-700 border-rose-100" }
+                    ? { icon: <AlertCircle className="w-3.5 h-3.5 text-rose-500" />, text: "Out of Stock", cls: "bg-rose-50 text-rose-700 border-rose-100" }
                     : p.variants.some((v) => v.inventory_quantity <= (v.low_stock_threshold ?? 10))
-                    ? { text: "🟡 Low Stock", cls: "bg-amber-50 text-amber-700 border-amber-100" }
-                    : { text: "🟢 In Stock", cls: "bg-emerald-50 text-emerald-700 border-emerald-100" };
+                    ? { icon: <AlertTriangle className="w-3.5 h-3.5 text-amber-500" />, text: "Low Stock", cls: "bg-amber-50 text-amber-700 border-amber-100" }
+                    : { icon: <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />, text: "In Stock", cls: "bg-emerald-50 text-emerald-700 border-emerald-100" };
                   return (
                     <tr key={p.id} className="hover:bg-violet-50/30 transition-colors cursor-pointer" onClick={() => setSelectedId(p.id)}>
                       <td className="px-4 py-3">
@@ -582,7 +583,7 @@ function ProductsPage({ variantName }: {
                       <td className="px-4 py-3 text-slate-500">{p.variants.length}</td>
                       <td className="px-4 py-3 font-semibold text-slate-800">{totalQty}</td>
                       <td className="px-4 py-3">
-                        <span className={`px-2.5 py-1 text-[11px] font-bold rounded-full border ${worst.cls}`}>{worst.text}</span>
+                        <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-bold rounded-full border ${worst.cls}`}>{worst.icon} {worst.text}</span>
                       </td>
                       <td className="px-4 py-3 text-slate-400 hidden md:table-cell">{timeAgo(p.updated_at)}</td>
                       <td className="px-4 py-3 text-right">
@@ -692,7 +693,7 @@ function ProductDetailPage({ productId, variantName, onBack, onChanged }: {
                     <td className="px-4 py-3 text-slate-500">{v.sku || "—"}</td>
                     <td className="px-4 py-3 font-bold text-slate-800">{v.inventory_quantity}</td>
                     <td className="px-4 py-3">
-                      <span className={`px-2.5 py-1 text-[11px] font-bold rounded-full border ${st.cls}`}>{st.text}</span>
+                      <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-bold rounded-full border ${st.cls}`}>{st.icon} {st.text}</span>
                     </td>
                     <td className="px-4 py-3 text-slate-600">{money(v.price)}</td>
                     <td className="px-4 py-3 text-right">

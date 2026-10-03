@@ -133,7 +133,8 @@ class TaskApprovalRequest(BaseModel):
 class AgentActionOut(BaseModel):
     """Agent action audit record output."""
     id: str
-    agent_id: str
+    agent_id: Optional[str] = None
+    team_id: Optional[str] = None
     task_id: Optional[str] = None
     organization_id: str
     action_type: str

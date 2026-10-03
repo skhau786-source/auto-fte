@@ -521,14 +521,23 @@ async def list_actions(
     user: RegisteredStudent = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """List audit trail actions for agents."""
+    """
+    List audit trail actions for agents and teams.
+
+    Team-scoped: results are always filtered to the requesting user's
+    own authorized scope (their team, or all teams for org OWNER/ADMIN)
+    by AIService.get_agent_actions() — there is no client-supplied
+    team_id filter here, so a user can never request another team's
+    audit trail by passing one in.
+    """
     service = AIService(db=db, organization_id=org.id, user_id=user.id)
     actions = await service.get_agent_actions(agent_id=agent_id, task_id=task_id)
     return AgentActionListOut(
         items=[
             AgentActionOut(
                 id=str(a.id),
-                agent_id=str(a.agent_id),
+                agent_id=str(a.agent_id) if a.agent_id else None,
+                team_id=str(a.team_id) if a.team_id else None,
                 task_id=str(a.task_id) if a.task_id else None,
                 organization_id=str(a.organization_id),
                 action_type=a.action_type,
