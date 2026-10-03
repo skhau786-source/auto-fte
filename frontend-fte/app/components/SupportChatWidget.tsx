@@ -1,7 +1,9 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { buildApiUrl } from "../lib/config";
+
+const API_BASE = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000").replace(/\/+$/, "");
+const buildApiUrl = (path: string) => `${API_BASE}${path}`;
 
 type Turn = { role: "customer" | "bot"; text: string; lang?: string };
 

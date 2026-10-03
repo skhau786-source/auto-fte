@@ -57,6 +57,7 @@ import InventoryHub from "./InventoryHub";
 import AIAgentsHub from "./AIAgentsHub";
 import { RevenueAnalytics } from "./RevenueAnalytics";
 import { LanguageSwitcher } from "./LanguageSwitcher";
+import DashboardChatWidget from "./DashboardChatWidget";
 
 // ═══════════════════════════════════════════════════════════════════
 // Helpers (plain language)
@@ -465,6 +466,7 @@ export default function BusinessDashboard({ userEmail, onLogout }: BusinessDashb
           )}
         </div>
       </div>
+      <DashboardChatWidget />
     </div>
   );
 }

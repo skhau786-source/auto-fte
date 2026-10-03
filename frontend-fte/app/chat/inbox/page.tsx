@@ -1,7 +1,10 @@
 "use client";
 
-import { useCallback, useState } from "react";
-import { buildApiUrl } from "../../lib/config";
+import { useCallback, useEffect, useState } from "react";
+import { tokenStore } from "@/lib/api";
+
+const API_BASE = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000").replace(/\/+$/, "");
+const buildApiUrl = (path: string) => `${API_BASE}${path}`;
 
 type Handoff = {
   id: string;
@@ -35,6 +38,17 @@ export default function InboxPage() {
     setStores(await s.json());
   }, []);
 
+  // Already signed in on the dashboard? Skip the login form.
+  useEffect(() => {
+    const saved = tokenStore.get();
+    if (!saved) return;
+    setToken(saved);
+    load(saved).catch(() => {
+      tokenStore.clear();
+      setToken(null);
+    });
+  }, [load]);
+
   async function login(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
@@ -46,6 +60,7 @@ export default function InboxPage() {
       });
       const data = await res.json();
       if (!res.ok || !data.access_token) throw new Error(data?.detail || "Login failed");
+      tokenStore.set(data.access_token);
       setToken(data.access_token);
       await load(data.access_token);
     } catch (err) {
