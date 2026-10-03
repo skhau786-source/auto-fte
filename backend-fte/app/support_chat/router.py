@@ -1,6 +1,7 @@
 """Support chat routes.
 
 Public (customers, no login):  POST /support-chat/message
+                               POST /support-chat/handoff-contact
 Owner (login required):        GET  /support-chat/my-stores
                                GET  /support-chat/handoffs
                                POST /support-chat/handoffs/{id}/resolve
@@ -62,6 +63,12 @@ class HandoffOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class HandoffContactIn(BaseModel):
+    handoff_id: uuid.UUID
+    session_id: str = Field(min_length=1, max_length=100)
+    contact: str = Field(min_length=3, max_length=150)
+
+
 class StoreOut(BaseModel):
     id: uuid.UUID
     shopify_domain: str
@@ -79,6 +86,24 @@ async def chat_message(body: ChatMessageIn, db: AsyncSession = Depends(get_db)):
     return await service.answer(
         db, store, body.session_id, body.message, body.customer_name, body.customer_contact, history
     )
+
+
+@router.post("/handoff-contact", status_code=status.HTTP_204_NO_CONTENT)
+async def handoff_contact(body: HandoffContactIn, db: AsyncSession = Depends(get_db)):
+    """Customer leaves a phone/email for an open handoff (must come from the same chat session)."""
+    h = (
+        await db.execute(
+            select(SupportHandoff).where(
+                SupportHandoff.id == body.handoff_id,
+                SupportHandoff.session_id == body.session_id,
+                SupportHandoff.status == "open",
+            )
+        )
+    ).scalar_one_or_none()
+    if not h:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Handoff not found")
+    h.customer_contact = body.contact
+    await db.commit()
 
 
 @router.get("/my-stores", response_model=list[StoreOut])
