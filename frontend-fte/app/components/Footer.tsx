@@ -2,8 +2,29 @@
 
 import React from "react";
 import Link from "next/link";
-import { TrendingUp, ShieldCheck } from "lucide-react";
+import {
+  TrendingUp,
+  ShieldCheck,
+  Linkedin,
+  Facebook,
+  Instagram,
+  Twitter,
+  Youtube,
+  MessageCircle,
+  Mail,
+} from "lucide-react";
+import { SOCIAL_LINKS } from "../lib/socialLinks";
 import { useLanguage } from "../lib/LanguageContext";
+
+const SOCIALS = [
+  { key: "linkedin", label: "LinkedIn", Icon: Linkedin },
+  { key: "facebook", label: "Facebook", Icon: Facebook },
+  { key: "instagram", label: "Instagram", Icon: Instagram },
+  { key: "x", label: "X (Twitter)", Icon: Twitter },
+  { key: "youtube", label: "YouTube", Icon: Youtube },
+  { key: "whatsapp", label: "WhatsApp", Icon: MessageCircle },
+  { key: "email", label: "Email", Icon: Mail },
+] as const;
 
 export function Footer() {
   const { t } = useLanguage();
@@ -34,7 +55,24 @@ export function Footer() {
               {t("footer.description") || "Empowering 24/7 E-Commerce growth with secure, autonomous AI employee containers."}
             </p>
 
-            <div className="flex items-center gap-3 pt-2">
+            {SOCIALS.some(({ key }) => SOCIAL_LINKS[key]) && (
+              <div className="flex flex-wrap items-center gap-3 pt-2">
+                {SOCIALS.filter(({ key }) => SOCIAL_LINKS[key]).map(({ key, label, Icon }) => (
+                  <a
+                    key={key}
+                    href={SOCIAL_LINKS[key]}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    aria-label={label}
+                    className="w-9 h-9 rounded-full border border-white/10 bg-white/5 flex items-center justify-center text-slate-400 hover:text-amber-300 hover:border-amber-400/40 transition-colors"
+                  >
+                    <Icon className="w-4 h-4" aria-hidden="true" />
+                  </a>
+                ))}
+              </div>
+            )}
+
+            <div className="flex flex-wrap items-center gap-3 pt-2">
               <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-[11px] font-semibold text-emerald-400">
                 <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
                 <span>All 7 AI Agents Active</span>
