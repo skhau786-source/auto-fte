@@ -7,7 +7,7 @@ from sqlalchemy import select, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import Product, ProductVariant, Store
-from app.support_chat import nlu
+from app.support_chat import llm, nlu
 from app.support_chat.models import SupportHandoff
 
 T = {
@@ -116,7 +116,8 @@ async def answer(db: AsyncSession, store: Store, session_id: str, message: str,
         lang = "ur"
     t = T[lang]
     intent = nlu.detect_intent(message)
-    out = {"intent": intent, "language": lang, "handoff_id": None, "product": None}
+    out = {"intent": intent, "language": lang, "handoff_id": None, "product": None, "source": "rules"}
+    needs_llm = False
 
     if intent == "greeting":
         out["reply"] = t["greeting"]
@@ -147,6 +148,7 @@ async def answer(db: AsyncSession, store: Store, session_id: str, message: str,
             p = await find_product(db, store.id, terms)
             if not p:
                 out["reply"] = t["no_product"].format(q=" ".join(terms))
+                needs_llm = True
             else:
                 vs = await _variants(db, p.id)
                 total = sum(max(v.inventory_quantity, 0) for v in vs)
@@ -158,4 +160,14 @@ async def answer(db: AsyncSession, store: Store, session_id: str, message: str,
                 out["product"] = {"id": str(p.id), "title": p.title, "price": price, "stock": total}
     else:
         out["reply"] = t["unknown"]
+        needs_llm = True
+
+    # Rules could not help: let the LLM answer from the store's real data (no-op without an API key).
+    if needs_llm:
+        res = await llm.llm_answer(db, store, message, history, session_id)
+        if res:
+            out["reply"], out["source"] = res["reply"], "llm"
+            if res["handoff"]:
+                h = await create_handoff(db, store.id, session_id, message, lang, name, contact, history)
+                out["handoff_id"] = str(h.id)
     return out

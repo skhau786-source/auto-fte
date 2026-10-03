@@ -45,6 +45,7 @@ class ChatMessageOut(BaseModel):
     language: str
     handoff_id: str | None = None
     product: dict | None = None
+    source: str = "rules"  # "rules" or "llm"
 
 
 class HandoffOut(BaseModel):

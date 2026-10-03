@@ -156,6 +156,13 @@ class Settings(BaseSettings):
     EMAILS_FROM_EMAIL: str = ""
 
     # ═══════════════════════════════════════════════════════════════
+    # Support chat LLM fallback (needs OPENAI_API_KEY or ANTHROPIC_API_KEY)
+    # ═══════════════════════════════════════════════════════════════
+    SUPPORT_CHAT_LLM_ENABLED: bool = True
+    SUPPORT_CHAT_LLM_TIMEOUT: int = 15
+    SUPPORT_CHAT_LLM_PER_SESSION_HOUR: int = 20
+
+    # ═══════════════════════════════════════════════════════════════
     # Stripe (Payments) — from kulsoom
     # ═══════════════════════════════════════════════════════════════
     # Left blank in dev/test on purpose — SubscriptionService raises a

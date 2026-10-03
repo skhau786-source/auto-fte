@@ -37,7 +37,8 @@ Migration chain: bilal's chain was re-parented onto `remove_warehouse` (`37675f9
 ## 3. Added after the merge
 
 - **Organizations:** `POST /organizations`, `GET /organizations/me`. Without these, agents, RAG and subscriptions all answered "User is not a member of any organization".
-- **Support chat bot** (`/support-chat`): rule-based, English + Roman Urdu, no LLM key needed. Answers price/stock from the store's products, looks up order status, and hands the customer over to the owner. Owner endpoints list and resolve handoffs.
+- **Support chat bot** (`/support-chat`): English + Roman Urdu. Rules answer price/stock from the store's products, look up order status and hand the customer over to the owner (exact numbers, no model involved). Owner endpoints list and resolve handoffs.
+- **LLM fallback for the chat bot** (`app/support_chat/llm.py`): when the rules cannot help (unclear message, or no product matched) and `OPENAI_API_KEY` or `ANTHROPIC_API_KEY` is set, the model answers from the store's real data only (matching products, a catalog sample, and FAQ snippets from the owner's RAG knowledge bases). It replies in the customer's language, can ask for a human handoff, ignores instructions inside customer messages, times out after 15 s, and is limited to 20 calls per chat session per hour. Without a key, or on any model error, the rule-based reply is used. The API response has a `source` field (`rules` or `llm`).
 - **Chat widget:** public page `/chat?store=<store id>`, owner inbox `/chat/inbox`, and a widget plus "customers waiting" badge inside the owner dashboard.
 - **Migration `rag_support_chat_001`:** creates the RAG tables (they had no migration) and `support_handoffs`.
 - **Bug fixes:** ORM enums now use the lowercase values stored in the database (organization role, plan tier, subscription status, AI agent/task enums); creating an organization used to fail with a 500. `requirements.txt` had two lines glued together. `app/social/page.tsx` type errors fixed.
@@ -53,9 +54,9 @@ Migration chain: bilal's chain was re-parented onto `remove_warehouse` (`37675f9
 - `pip check` reports no broken requirements; `alembic heads` shows one head.
 
 ### Does not work or is untested
-- **AI agent tasks** need `OPENAI_API_KEY` or `ANTHROPIC_API_KEY`; none is set. RAG uses keyword search because no embeddings key is set.
+- **AI agent tasks and the chat bot's LLM fallback** need `OPENAI_API_KEY` or `ANTHROPIC_API_KEY`; none is set. The fallback is covered by 30 automated tests and an end-to-end run with a fake model, but has **not been run against a real model**. RAG uses keyword search because no embeddings key is set.
 - **Chat bot order status** is only tested for "order not found": the database has no WooCommerce orders. There is no order table for Shopify, so order lookup works for WooCommerce orders only.
-- **The bot is keyword-based.** Unusual wording can be mistaken for a product name.
+- **Without an LLM key the bot is keyword-based:** unusual wording can be mistaken for a product name and answered with "no product found".
 - **Handoffs do not email or notify the owner;** the owner has to open the inbox (the dashboard badge refreshes every 30 s).
 - **The chat endpoint is public** (anyone with a store id can use it) and has no rate limiting yet.
 - **Instagram connect** returns a URL with an empty `client_id` until Instagram keys are set; `/posts/generate` and publishing were not run (need Groq/HuggingFace/Instagram credentials).
@@ -71,7 +72,7 @@ Migration chain: bilal's chain was re-parented onto `remove_warehouse` (`37675f9
 | Needed for | Variables |
 |---|---|
 | Required | `DATABASE_URL`, `REDIS_URL`, `SECRET_KEY` (change the default) |
-| AI agents | `OPENAI_API_KEY` or `ANTHROPIC_API_KEY` |
+| AI agents + chat bot LLM fallback | `OPENAI_API_KEY` or `ANTHROPIC_API_KEY` (optional: `SUPPORT_CHAT_LLM_ENABLED`, `SUPPORT_CHAT_LLM_TIMEOUT`, `SUPPORT_CHAT_LLM_PER_SESSION_HOUR`) |
 | Instagram + AI posts | `INSTAGRAM_APP_ID`, `INSTAGRAM_APP_SECRET`, `INSTAGRAM_REDIRECT_URI`, `GROQ_API_KEY`, `HUGGINGFACE_API_TOKEN` |
 | Shopify | `SHOPIFY_API_KEY`, `SHOPIFY_API_SECRET`, `SHOPIFY_WEBHOOK_SECRET`, plus Admin API access for the store |
 | Stripe | `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` |
@@ -82,7 +83,7 @@ Frontend: `frontend-fte/.env.local` with `NEXT_PUBLIC_API_URL=http://localhost:8
 
 **To build or decide**
 - Check `backend-fte/.env.production` and `.env.staging`: they are tracked in git on `main`. Make sure they hold no real passwords, and consider untracking them.
-- LLM-backed chat answers (and a RAG fallback for FAQs) once a key is available.
+- Try the chat bot's LLM fallback with a real key and tune the prompt on real conversations (the FAQ part reads the owner's organization knowledge bases, so upload shipping/returns documents there).
 - Owner notification on handoff (email / push), and rate limiting on `/support-chat/message`.
 - A store picker in the dashboard widget; embed snippet for customers' own websites.
 - Real Shopify order lookup for the chat bot.
