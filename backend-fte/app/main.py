@@ -15,6 +15,8 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.responses import JSONResponse
 from starlette.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+import os
 
 from app.config import settings
 from app.logging_config import configure_logging, request_id_var, user_id_var, store_id_var, endpoint_var
@@ -58,6 +60,10 @@ from app.export.export_router import router as export_router
 
 # ── AI Agent Routes (Phase 4) ──
 from app.ai.router import router as ai_router
+
+# ── AI Posts + Instagram Routes (from bilal) ──
+from app.ai_posts.routes import router as ai_posts_router
+from app.instagram.routes import router as instagram_router
 
 # ═══════════════════════════════════════════════════════════════════
 # Configure Logging
@@ -202,6 +208,14 @@ app.include_router(export_router)
 
 # ── AI Agent Routes (Phase 4) ──
 app.include_router(ai_router)
+
+# ── AI Posts + Instagram Routes (from bilal) ──
+app.include_router(ai_posts_router)
+app.include_router(instagram_router)
+
+# ── Static files (generated post images) ──
+os.makedirs("static", exist_ok=True)
+app.mount("/static", StaticFiles(directory="static"), name="static")
 
 
 # ═══════════════════════════════════════════════════════════════════

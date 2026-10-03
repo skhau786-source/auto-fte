@@ -131,6 +131,30 @@ class Settings(BaseSettings):
     LOG_LEVEL: str = "INFO"
     LOG_FORMAT: str = "json"  # json | text
 
+    # ═══════════════════════════════════════════════════════════════
+    # AI Post Generation (from bilal) — optional, features disabled if empty
+    # ═══════════════════════════════════════════════════════════════
+    GROQ_API_KEY: str = ""
+    HUGGINGFACE_API_TOKEN: str = ""
+
+    # ═══════════════════════════════════════════════════════════════
+    # Instagram / Meta Graph API (from bilal)
+    # ═══════════════════════════════════════════════════════════════
+    INSTAGRAM_APP_ID: str = ""
+    INSTAGRAM_APP_SECRET: str = ""
+    INSTAGRAM_REDIRECT_URI: str = ""
+    GRAPH_API_VERSION: str = "v21.0"
+    INSTAGRAM_WEBHOOK_VERIFY_TOKEN: str = "digital_fte_secret_token"
+
+    # ═══════════════════════════════════════════════════════════════
+    # SMTP Email Notifications (from bilal)
+    # ═══════════════════════════════════════════════════════════════
+    SMTP_HOST: str = "smtp.gmail.com"
+    SMTP_PORT: int = 587
+    SMTP_USER: str = ""
+    SMTP_PASSWORD: str = ""
+    EMAILS_FROM_EMAIL: str = ""
+
     @field_validator("LOG_LEVEL")
     @classmethod
     def validate_log_level(cls, v: str) -> str:
