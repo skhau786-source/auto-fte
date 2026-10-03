@@ -1,7 +1,6 @@
-// @ts-nocheck -- bilal's page has unused imports/state and untyped arrays that fail the strict build; type-check disabled here so the merged project builds. TODO: clean up.
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState } from "react";
 import { useGoogleLogin } from "@react-oauth/google";
 import { 
   Mail, 
@@ -15,9 +14,7 @@ import {
   ShoppingBag, 
   Chrome, 
   TrendingUp, 
-  Copy, 
   Check, 
-  RotateCcw, 
   LogOut, 
   ShieldCheck, 
   AlertCircle,
@@ -28,7 +25,6 @@ import {
   Calendar,
   MessageCircle,
   Settings,
-  Link2,
   Loader2,
   Twitter,
   Facebook,
@@ -42,7 +38,6 @@ import {
   BarChart3,
   DollarSign,
   Bell,
-  Activity,
 } from "lucide-react";
 import { InteractiveRobot } from "../components/InteractiveRobot";
 
@@ -90,7 +85,7 @@ export default function AuthPage() {
   const [showShopifyModal, setShowShopifyModal] = useState(false);
   const [shopifyDomain, setShopifyDomain] = useState("");
   const [shopifyConnecting, setShopifyConnecting] = useState(false);
-  const [dashboardView, setDashboardView] = useState<"command" | "inventory">("command");
+  const [, setDashboardView] = useState<"command" | "inventory">("command");
 
   // SOCIAL MEDIA STATES
   const [instagramConnected, setInstagramConnected] = useState(false);
@@ -119,14 +114,12 @@ export default function AuthPage() {
 
   // Global SEO States
   const [showSEOModal, setShowSEOModal] = useState(false);
-  const [showCodeViewer, setShowCodeViewer] = useState(false);
-  const [copiedCode, setCopiedCode] = useState(false);
 
   // ONBOARDING FLOW STATES
   const [onboardingStep, setOnboardingStep] = useState(1);
   const [websiteUrl, setWebsiteUrl] = useState('');
   const [isConnecting, setIsConnecting] = useState(false);
-  const [isReady, setIsReady] = useState(false);
+  const [, setIsReady] = useState(false);
   const [showDashboard, setShowDashboard] = useState(false);
 
   // 🆕 SIDEBAR DASHBOARD STATE
@@ -285,13 +278,6 @@ export default function AuthPage() {
       setForgotSubmitted(false);
       setForgotEmail("");
     }, 3000);
-  };
-
-  const handleCopyCode = () => {
-    navigator.clipboard.writeText(RAW_SOURCE_CODE);
-    setCopiedCode(true);
-    showToast("Component source code copied to clipboard!", "success");
-    setTimeout(() => setCopiedCode(false), 2000);
   };
 
   // Check if any social account is connected
@@ -586,7 +572,7 @@ export default function AuthPage() {
                                 { percent: 25, color: '#3b82f6' },
                                 { percent: 20, color: '#ec4899' },
                                 { percent: 10, color: '#f59e0b' },
-                              ].reduce((acc, item, i, arr) => {
+                              ].reduce<React.ReactElement[]>((acc, item, i, arr) => {
                                 const prev = arr.slice(0, i).reduce((sum, p) => sum + p.percent, 0);
                                 const start = (prev / 100) * 2 * Math.PI;
                                 const end = ((prev + item.percent) / 100) * 2 * Math.PI;
@@ -903,7 +889,7 @@ export default function AuthPage() {
                 { percent: 25, color: '#3b82f6' },
                 { percent: 20, color: '#ec4899' },
                 { percent: 10, color: '#f59e0b' },
-              ].reduce((acc, item, i, arr) => {
+              ].reduce<React.ReactElement[]>((acc, item, i, arr) => {
                 const prev = arr.slice(0, i).reduce((sum, p) => sum + p.percent, 0);
                 const start = (prev / 100) * 2 * Math.PI;
                 const end = ((prev + item.percent) / 100) * 2 * Math.PI;
@@ -2050,5 +2036,3 @@ export default function AuthPage() {
     </div>
   );
 }
-
-const RAW_SOURCE_CODE = `...`;
