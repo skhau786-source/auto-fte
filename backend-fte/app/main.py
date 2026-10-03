@@ -70,6 +70,7 @@ from app.subscriptions.router import router as subscriptions_router
 # ── AI Posts + Instagram Routes (from bilal) ──
 from app.ai_posts.routes import router as ai_posts_router
 from app.instagram.routes import router as instagram_router
+from app.brand.routes import router as brand_router
 
 # ═══════════════════════════════════════════════════════════════════
 # Configure Logging
@@ -224,6 +225,7 @@ app.include_router(subscriptions_router)
 # ── AI Posts + Instagram Routes (from bilal) ──
 app.include_router(ai_posts_router)
 app.include_router(instagram_router)
+app.include_router(brand_router)
 
 # ── Static files (generated post images) ──
 os.makedirs("static", exist_ok=True)

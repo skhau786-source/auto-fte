@@ -34,4 +34,5 @@ stripe>=11.0
 pytest>=8.0
 pytest-asyncio>=0.24
 pytest-cov>=5.0
-respx>=0.21huggingface_hub==0.26.2
+respx>=0.21
+huggingface_hub>=0.28
