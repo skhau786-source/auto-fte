@@ -115,12 +115,16 @@ class CustomerSupportHandler:
 
         # 4. Route intent
         if intent == Intent.OUT_OF_SCOPE:
-            await self.handoff_to_human(conversation.id, reason=f"Out of scope keyword in: '{text}'")
-            reply_content = (
-                "Main ne aapki request human support team ko forward kar di hai. Ek agent jald aap se contact karega."
-                if lang in ("roman_urdu", "urdu")
-                else "I have escalated your request to our human support team. A representative will get back to you shortly."
-            )
+            # "What is your return policy?" jaise info sawal knowledge base se; asli refund/cancel
+            # requests aur hard keywords (scam, legal, ...) hamesha human ko jaate hain.
+            reply_content = await self._try_policy_answer(store_id, text, lang)
+            if not reply_content:
+                await self.handoff_to_human(conversation.id, reason=f"Out of scope keyword in: '{text}'")
+                reply_content = (
+                    "Main ne aapki request human support team ko forward kar di hai. Ek agent jald aap se contact karega."
+                    if lang in ("roman_urdu", "urdu")
+                    else "I have escalated your request to our human support team. A representative will get back to you shortly."
+                )
 
         elif intent == Intent.ORDER_STATUS:
             reply_content = ""
@@ -188,6 +192,42 @@ class CustomerSupportHandler:
             "intent": intent.value,
             "language": lang,
         }
+
+    # ─── Policy questions that look like handoff keywords ───────
+
+    # Sirf yeh keywords "info sawal" ho sakte hain; baaki (cancel, scam, legal, ...) hamesha handoff.
+    _SOFT_HANDOFF_KEYWORDS = ("refund", "return policy")
+    _ACTION_RE = re.compile(
+        r"\b(i want|i need|i would like|i'd like|i demand|give me|process|issue|send me|mujhe|"
+        r"refund me|refund my|my refund|money back|paisa wapas|paise wapas)\b|#\s?\d{3,}",
+        re.IGNORECASE,
+    )
+    _INFO_RE = re.compile(
+        r"\b(policy|policies|how|what|when|do you|does|can i|is there|are there|eligible|"
+        r"window|days|kya|kaise|kitne|kab)\b|\?",
+        re.IGNORECASE,
+    )
+
+    def _is_policy_question(self, text: str) -> bool:
+        """True sirf tab jab matched handoff keywords soft hon aur message info maang raha ho,
+        action nahi (e.g. "what is your refund policy?" haan; "I want a refund" nahi)."""
+        lowered = text.lower()
+        matched = [
+            kw for kw in (*self.settings.HANDOFF_KEYWORDS, *self.settings.OUT_OF_SCOPE_KEYWORDS)
+            if kw.lower() in lowered
+        ]
+        if not matched or any(kw.lower() not in self._SOFT_HANDOFF_KEYWORDS for kw in matched):
+            return False
+        if self._ACTION_RE.search(text):
+            return False
+        return bool(self._INFO_RE.search(text))
+
+    async def _try_policy_answer(self, store_id: int, text: str, language: str) -> str:
+        """Policy sawal ka jawab knowledge base se; "" agar sawal policy-type nahi ya KB mein jawab nahi."""
+        if not self._is_policy_question(text):
+            return ""
+        hits = await self._knowledge_hits(store_id, text)
+        return await self.answer_from_knowledge(text, language, hits) if hits else ""
 
     # ─── Knowledge base (RAG) ───────────────────────────────────
 

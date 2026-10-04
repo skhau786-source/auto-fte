@@ -66,6 +66,67 @@ async def test_no_hits_returns_empty_without_calling_llm():
     assert llm.prompts == []
 
 
+import pytest
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "what is your return policy",
+        "What is your refund policy?",
+        "How long do refunds take?",
+        "Can you tell me about your refund policy",
+        "do you offer refunds?",
+        "kya refund policy hai",
+    ],
+)
+def test_policy_questions_are_answerable(text):
+    assert make(FakeLLM())._is_policy_question(text) is True
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "I want a refund",
+        "refund my order #1234",
+        "I need my money back",
+        "mujhe refund chahiye",
+        "cancel my order",
+        "can I cancel my order?",
+        "this is a scam",
+        "I will sue you, what is your refund policy?",
+        "what is your return policy, I want to talk to human",
+        "refund",
+        "hello there",
+    ],
+)
+def test_actions_and_hard_keywords_still_escalate(text):
+    assert make(FakeLLM())._is_policy_question(text) is False
+
+
+async def test_try_policy_answer_uses_knowledge_base():
+    handler = make(FakeLLM(error=LLMError("down")))
+    refund_hits = [{**HITS[0], "document_title": "Returns", "content": "Returns are accepted within 30 days."}]
+
+    async def fake_hits(store_id, query):
+        return refund_hits
+
+    handler._knowledge_hits = fake_hits
+    answer = await handler._try_policy_answer(1, "what is your return policy", "en")
+    assert "Returns are accepted within 30 days." in answer
+
+
+async def test_try_policy_answer_empty_when_kb_has_nothing_or_not_policy():
+    handler = make(FakeLLM(reply="x"))
+
+    async def no_hits(store_id, query):
+        return []
+
+    handler._knowledge_hits = no_hits
+    assert await handler._try_policy_answer(1, "what is your return policy", "en") == ""
+    assert await handler._try_policy_answer(1, "I want a refund", "en") == ""
+
+
 def test_trim_passage_cuts_at_sentence_boundary():
     text = "First sentence here. " * 60
     trimmed = CustomerSupportHandler._trim_passage(text, limit=100)
