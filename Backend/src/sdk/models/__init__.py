@@ -12,3 +12,4 @@ from src.sdk.models.content import *
 from src.sdk.models.analytics import *
 from src.sdk.models.support import *
 from src.sdk.models.workflow import *
+from src.sdk.models.rag import *
