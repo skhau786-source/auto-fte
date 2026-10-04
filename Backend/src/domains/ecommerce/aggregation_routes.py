@@ -3,6 +3,7 @@
 #
 # PURPOSE: Inventory aggregation endpoints (read-only).
 #
+#   GET /api/v1/stores/{store_id}/inventory/items
 #   GET /api/v1/stores/{store_id}/inventory/summary
 #   GET /api/v1/stores/{store_id}/inventory/products/{product_id}
 #   GET /api/v1/stores/{store_id}/inventory/variants/{variant_id}
@@ -13,6 +14,8 @@
 #
 # NOTE:    Ported from kulsoom (backend-fte/app/inventory/aggregation_router.py).
 # ═══════════════════════════════════════════════════════════════
+
+from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -29,6 +32,18 @@ router = APIRouter(prefix="/api/v1", tags=["Inventory"])
 
 def _http_error(exc: AgentError) -> HTTPException:
     return HTTPException(status_code=exc.code if exc.code in (400, 404) else 400, detail=exc.message)
+
+
+@router.get("/stores/{store_id}/inventory/items")
+async def inventory_items(
+    store_id: int,
+    search: Optional[str] = Query(None, max_length=100),
+    limit: int = Query(250, ge=1, le=500),
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    await _get_store_or_404(db, store_id, user.id)
+    return await AggregationService(db, store_id).list_items(search=search, limit=limit)
 
 
 @router.get("/stores/{store_id}/inventory/summary")

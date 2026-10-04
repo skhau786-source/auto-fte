@@ -6,7 +6,7 @@
 
 import pytest
 
-from src.domains.chatbot.rag_service import chunk_text, _terms
+from src.domains.chatbot.rag_service import chunk_text, _terms, _query_terms
 
 
 def test_short_text_is_single_chunk():
@@ -35,6 +35,14 @@ def test_terminates_when_no_break_points():
 def test_overlap_must_be_smaller_than_chunk_size():
     with pytest.raises(ValueError):
         chunk_text("abc", chunk_size=100, overlap=100)
+
+
+def test_query_terms_drop_stopwords():
+    assert _query_terms("How long does shipping take?") == {"long", "shipping", "take"}
+
+
+def test_query_terms_keep_all_if_only_stopwords():
+    assert _query_terms("what is the") == {"what", "is", "the"}
 
 
 def test_terms_ignores_case_and_punctuation():

@@ -31,8 +31,21 @@ logger = logging.getLogger(__name__)
 _WORD_RE = re.compile(r"\w+", re.UNICODE)
 
 
+_STOPWORDS = frozenset(
+    "a an and are as at be but by can do does did for from had has have how i if in is it "
+    "its me my of on or our so that the their them then there these they this to us was we "
+    "what when where which who why will with you your".split()
+)
+
+
 def _terms(text: str) -> set[str]:
     return set(_WORD_RE.findall(text.lower()))
+
+
+def _query_terms(query: str) -> set[str]:
+    """Query ke meaningful words; agar sab stopwords hon to sab rakho."""
+    terms = _terms(query)
+    return (terms - _STOPWORDS) or terms
 
 
 def chunk_text(content: str, chunk_size: int = 1000, overlap: int = 200) -> list[str]:
@@ -223,7 +236,7 @@ class RAGService:
         kb = await self.get_knowledge_base(kb_id)
         started = time.perf_counter()
 
-        query_terms = _terms(query)
+        query_terms = _query_terms(query)
         scored: list[tuple[RagChunk, str, float]] = []
         if query_terms:
             result = await self.db.execute(

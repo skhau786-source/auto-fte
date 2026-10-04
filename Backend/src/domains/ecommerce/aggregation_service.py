@@ -23,6 +23,7 @@ from typing import Optional
 
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from src.sdk.exceptions import AgentError
 from src.sdk.models.base import Product, Variant, Order, OrderItem
@@ -61,6 +62,45 @@ class AggregationService:
             .group_by(StockReservation.variant_id)
         )).all()
         return {vid: int(q) for vid, q in rows}
+
+    # ─── Items (products + variants stock) ──────────────────────
+
+    async def list_items(self, search: Optional[str] = None, limit: int = 250) -> dict:
+        """Products with their variants' stock — inventory screens ke liye."""
+        stmt = select(Product).where(Product.store_id == self.store_id)
+        if search:
+            stmt = stmt.where(Product.title.ilike(f"%{search}%"))
+        total = (await self.db.execute(
+            select(func.count()).select_from(stmt.subquery())
+        )).scalar() or 0
+        products = (await self.db.execute(
+            stmt.options(selectinload(Product.variants)).order_by(Product.title).limit(limit)
+        )).scalars().all()
+        return {
+            "total": total,
+            "items": [
+                {
+                    "id": p.id,
+                    "title": p.title,
+                    "vendor": p.vendor or "",
+                    "status": p.status,
+                    "image_url": p.image_url or "",
+                    "variants": [
+                        {
+                            "id": v.id,
+                            "title": v.title,
+                            "sku": v.sku or "",
+                            "price": float(v.price or 0),
+                            "inventory_quantity": v.inventory_quantity or 0,
+                            "low_stock_threshold": v.low_stock_threshold
+                            if v.low_stock_threshold is not None else DEFAULT_THRESHOLD,
+                        }
+                        for v in sorted(p.variants, key=lambda v: v.id)
+                    ],
+                }
+                for p in products
+            ],
+        }
 
     # ─── Store summary ──────────────────────────────────────────
 
