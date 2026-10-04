@@ -105,6 +105,12 @@ class CustomerSupportHandler:
             self.db.add(conversation)
             await self.db.flush()
 
+        # Resolved (closed) chat mein customer dobara likhe → chat dobara open ho jaye
+        # (warna bot jawab deta rehta lekin chat "closed" dikhti, inbox mein kahin nazar na aati).
+        if conversation.status == "closed":
+            conversation.status = "open"
+            conversation.closed_at = None
+
         # 2. Add customer message
         cust_msg = Message(
             conversation_id=conversation.id,

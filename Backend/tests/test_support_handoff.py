@@ -128,6 +128,18 @@ async def test_after_hand_back_bot_answers_again():
     assert "Welcome" in result["content"]
 
 
+async def test_customer_writing_in_resolved_chat_reopens_it():
+    from datetime import datetime, timezone
+
+    closed = conv(status="closed")
+    closed.closed_at = datetime.now(timezone.utc)
+    result = await send(FakeSession(closed), "hello")
+    assert closed.status == "open" and closed.closed_at is None
+    assert result["conversation_status"] == "open"
+    assert result["silent"] is False
+    assert "Welcome" in result["content"]
+
+
 async def test_conversation_id_of_another_store_starts_a_new_conversation():
     # store filter ki wajah se query kuch nahi lautati → nayi conversation banti hai
     session = FakeSession(conv=None)
