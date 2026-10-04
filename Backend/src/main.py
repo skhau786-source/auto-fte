@@ -20,7 +20,7 @@ from src.sdk.config import get_settings
 from src.sdk.database import init_db
 from src.dependencies import init_event_bus, close_event_bus, close_llm_client
 from src.domains.auth.routes import router as auth_router
-from src.domains.ecommerce import routes_router, webhooks_router, oauth_router
+from src.domains.ecommerce import routes_router, webhooks_router, oauth_router, inventory_router
 from src.domains.chatbot.api import router as chatbot_router
 from src.domains.chatbot.rag_api import router as rag_router
 
@@ -122,6 +122,7 @@ app.include_router(auth_router)
 app.include_router(routes_router)
 app.include_router(webhooks_router)
 app.include_router(oauth_router)
+app.include_router(inventory_router)
 app.include_router(chatbot_router)
 app.include_router(rag_router)
 for _agent_router in _load_agent_routers():
