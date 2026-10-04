@@ -77,9 +77,14 @@ class BaseAgent(ABC):
         # Wait for SIGTERM / SIGINT
         loop = asyncio.get_event_loop()
         for sig in (signal.SIGTERM, signal.SIGINT):
-            loop.add_signal_handler(
-                sig, lambda: asyncio.create_task(self.shutdown())
-            )
+            try:
+                loop.add_signal_handler(
+                    sig, lambda: asyncio.create_task(self.shutdown())
+                )
+            except (NotImplementedError, RuntimeError):
+                # Windows event loop, or running embedded inside uvicorn
+                # (which owns the signals): skip, shutdown is cancelled by the host.
+                break
         while self.running:
             await asyncio.sleep(1)
 

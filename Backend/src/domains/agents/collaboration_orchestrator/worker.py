@@ -96,7 +96,9 @@ class CollaborationOrchestratorWorker(BaseAgent):
         await super().shutdown()
 
 
+worker = CollaborationOrchestratorWorker()
+
+
 if __name__ == "__main__":
     setup_logging("collaboration_orchestrator_worker")
-    worker = CollaborationOrchestratorWorker()
     asyncio.run(worker.run())

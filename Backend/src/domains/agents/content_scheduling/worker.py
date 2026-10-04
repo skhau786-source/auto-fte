@@ -80,9 +80,11 @@ class ContentSchedulingWorker(BaseAgent):
         await super().shutdown()
 
 
+worker = ContentSchedulingWorker()
+
+
 # ─── Main Entry Point ─────────────────────────────────────────
 
 if __name__ == "__main__":
     setup_logging("content_scheduling")
-    worker = ContentSchedulingWorker()
     asyncio.run(worker.run())

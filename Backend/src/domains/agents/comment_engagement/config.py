@@ -46,7 +46,7 @@ class Settings(BaseSettings):
     API_KEYS: list[str] = ["dev-key-change-me"]
 
     # CORS
-    CORS_ORIGINS: list[str] = ["http://localhost:3000", "http://localhost:5173"]
+    CORS_ORIGINS: str = "http://localhost:3000,http://localhost:5173"
 
     # Server
     HOST: str = "0.0.0.0"

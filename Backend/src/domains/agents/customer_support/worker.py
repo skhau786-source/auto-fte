@@ -48,7 +48,9 @@ class CustomerSupportWorker(BaseAgent):
             logger.error(f"Error handling event in CustomerSupportWorker: {e}")
 
 
+worker = CustomerSupportWorker()
+
+
 if __name__ == "__main__":
     setup_logging("customer_support_worker")
-    worker = CustomerSupportWorker()
     asyncio.run(worker.run())

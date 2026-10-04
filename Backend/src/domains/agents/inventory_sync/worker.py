@@ -93,9 +93,11 @@ class InventorySyncWorker(BaseAgent):
                 logger.error(f"Sync failed for store {store_id}: {e}")
 
 
+worker = InventorySyncWorker()
+
+
 # ─── Main Entry Point ─────────────────────────────────────────
 
 if __name__ == "__main__":
     setup_logging("inventory_sync")
-    worker = InventorySyncWorker()
     asyncio.run(worker.run())

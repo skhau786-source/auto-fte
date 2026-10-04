@@ -151,9 +151,11 @@ class CommentEngagementWorker(BaseAgent):
         await super().shutdown()
 
 
+worker = CommentEngagementWorker()
+
+
 # ─── Main Entry Point ─────────────────────────────────────────
 
 if __name__ == "__main__":
     setup_logging("comment_engagement")
-    worker = CommentEngagementWorker()
     asyncio.run(worker.run())

@@ -72,9 +72,11 @@ class ContentGenerationWorker(BaseAgent):
                 logger.error(f"Content generation failed for product {product_id}: {e}")
 
 
+worker = ContentGenerationWorker()
+
+
 # ─── Main Entry Point ─────────────────────────────────────────
 
 if __name__ == "__main__":
     setup_logging("content_generation")
-    worker = ContentGenerationWorker()
     asyncio.run(worker.run())

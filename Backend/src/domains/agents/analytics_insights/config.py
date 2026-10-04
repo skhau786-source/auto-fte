@@ -31,7 +31,7 @@ class Settings(BaseSettings):
     # Security
     AUTH_ENABLED: bool = False
     API_KEYS: list[str] = ["dev-key-123"]
-    CORS_ORIGINS: list[str] = ["*"]
+    CORS_ORIGINS: str = "*"
 
     model_config = ConfigDict(
         env_file=".env",

@@ -77,7 +77,9 @@ class AnalyticsInsightsWorker(BaseAgent):
         await super().shutdown()
 
 
+worker = AnalyticsInsightsWorker()
+
+
 if __name__ == "__main__":
     setup_logging("analytics_insights_worker")
-    worker = AnalyticsInsightsWorker()
     asyncio.run(worker.run())
