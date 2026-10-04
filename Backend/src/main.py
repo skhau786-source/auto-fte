@@ -23,6 +23,7 @@ from src.domains.auth.routes import router as auth_router
 from src.sdk.database import async_session_factory
 from src.domains.ecommerce import (
     routes_router, webhooks_router, oauth_router, inventory_router, reservation_router,
+    aggregation_router,
 )
 from src.domains.ecommerce.reservation_service import expire_stale_reservations
 from src.domains.chatbot.api import router as chatbot_router
@@ -142,6 +143,7 @@ app.include_router(webhooks_router)
 app.include_router(oauth_router)
 app.include_router(inventory_router)
 app.include_router(reservation_router)
+app.include_router(aggregation_router)
 app.include_router(chatbot_router)
 app.include_router(rag_router)
 for _agent_router in _load_agent_routers():
