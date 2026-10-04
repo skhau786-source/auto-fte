@@ -77,6 +77,10 @@ class ChatbotResponse(BaseModel):
 
     mode: Literal["read_only", "agent"]
 
+    # Handoff: bot chup hai (answer khali) — widget kuch na dikhaye; polling se owner ka reply aayega
+    silent: bool = False
+    conversation_status: str = "open"
+
 
 # =============================================================
 # STORE RESOLUTION
@@ -252,6 +256,8 @@ async def _chat(
             if plan == "free"
             else "agent"
         ),
+        silent=bool(result.get("silent", False)),
+        conversation_status=result.get("conversation_status", "open"),
     )
 
 

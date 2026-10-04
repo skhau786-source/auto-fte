@@ -50,6 +50,13 @@ Be concise and friendly.
 
 KNOWLEDGE_NOT_COVERED = "NOT_COVERED"
 
+# Handoff ke dauran bot chup rehta hai; sirf ek dafa yeh bolta hai (zabaan ke hisaab se).
+HANDOFF_WAITING_MESSAGES = {
+    "en": "Our team will get back to you shortly.",
+    "roman_urdu": "Hamari team jald aap ko jawab degi.",
+    "urdu": "ہماری ٹیم جلد آپ کو جواب دے گی۔",
+}
+
 
 class CustomerSupportHandler:
     """Core handler for customer chat and support actions."""
@@ -81,8 +88,11 @@ class CustomerSupportHandler:
         # 1. Get or create Conversation
         conversation = None
         if conversation_id:
+            # store_id bhi match ho: kisi aur store ki conversation id par message inject nahi hota
             res = await self.db.execute(
-                select(Conversation).where(Conversation.id == conversation_id)
+                select(Conversation).where(
+                    Conversation.id == conversation_id, Conversation.store_id == store_id
+                )
             )
             conversation = res.scalar_one_or_none()
 
@@ -103,6 +113,11 @@ class CustomerSupportHandler:
         )
         self.db.add(cust_msg)
         await self.db.flush()
+
+        # 2b. Handoff mein ho to bot chup: na intent routing, na LLM/knowledge base.
+        # Message owner ke inbox ke liye save ho chuka hai.
+        if conversation.status == "handoff":
+            return await self._handoff_waiting_reply(conversation, lang)
 
         # 3. Classify intent
         intent = classify_intent(
@@ -187,7 +202,37 @@ class CustomerSupportHandler:
             "content": reply_content,
             "intent": intent.value,
             "language": lang,
+            "silent": False,
+            "conversation_status": conversation.status,
         }
+
+    async def _handoff_waiting_reply(self, conversation: Conversation, language: str) -> dict:
+        """Handoff chat mein customer ka naya message: pehli dafa "team jald jawab degi",
+        uske baad (jab tak owner ka reply ya bot wapsi na ho) khamoshi."""
+        waiting_texts = set(HANDOFF_WAITING_MESSAGES.values())
+        last = (await self.db.execute(
+            select(Message)
+            .where(Message.conversation_id == conversation.id, Message.role.in_(("agent_bot", "agent_human")))
+            .order_by(Message.id.desc())
+            .limit(1)
+        )).scalar_one_or_none()
+
+        base = {
+            "conversation_id": conversation.id,
+            "role": "agent_bot",
+            "intent": "handoff_waiting",
+            "language": language,
+            "conversation_status": "handoff",
+        }
+        if last is not None and last.role == "agent_bot" and last.content in waiting_texts:
+            # Pehle hi bata chuke hain — dobara na bolo
+            return {**base, "message_id": 0, "content": "", "silent": True}
+
+        text = HANDOFF_WAITING_MESSAGES.get(language, HANDOFF_WAITING_MESSAGES["en"])
+        bot_msg = Message(conversation_id=conversation.id, role="agent_bot", content=text)
+        self.db.add(bot_msg)
+        await self.db.flush()
+        return {**base, "message_id": bot_msg.id, "content": text, "silent": False}
 
     # ─── Policy questions that look like handoff keywords ───────
 
@@ -552,7 +597,9 @@ class CustomerSupportHandler:
         if not conv:
             raise ValueError(f"Conversation {conversation_id} not found")
 
-        conv.status = "open"  # Re-opened/active
+        # Human jawab de raha hai → handoff mein hi rahe (bot beech mein na bole); bot ko wapas
+        # dene ke liye inbox se status "open" karna hota hai.
+        conv.status = "handoff"
         msg = Message(
             conversation_id=conversation_id,
             role="agent_human",
