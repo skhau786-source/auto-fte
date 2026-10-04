@@ -9,15 +9,31 @@ from typing import Optional
 from pydantic import BaseModel
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.sdk.database import get_db
+from src.sdk.models.base import Store
+from src.sdk.models.support import Conversation
 
 from src.domains.agents.customer_support.handler import CustomerSupportHandler
 from src.domains.auth.service import get_current_user
+from src.domains.ecommerce.routes import _get_store_or_404
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1/support", tags=["Customer Support"])
+
+
+async def _owned_conversation_or_404(db: AsyncSession, conversation_id: int, user) -> Conversation:
+    """Conversation tabhi milti hai jab uska store isi user ka ho (warna 404, existence leak nahi)."""
+    conv = (await db.execute(
+        select(Conversation)
+        .join(Store, Store.id == Conversation.store_id)
+        .where(Conversation.id == conversation_id, Store.user_id == user.id)
+    )).scalar_one_or_none()
+    if conv is None:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    return conv
 
 
 # ─── Schemas ──────────────────────────────────────────────────
@@ -62,7 +78,8 @@ async def human_reply(
     db: AsyncSession = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    """Support dashboard endpoint: Human agent sends reply to conversation."""
+    """Support dashboard endpoint: Human agent sends reply to conversation (store owner only)."""
+    await _owned_conversation_or_404(db, conversation_id, current_user)
     handler = CustomerSupportHandler(db)
     try:
         msg = await handler.human_reply(conversation_id, body.text)
@@ -84,7 +101,8 @@ async def close_conversation(
     db: AsyncSession = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    """Close an active support conversation."""
+    """Close an active support conversation (store owner only)."""
+    await _owned_conversation_or_404(db, conversation_id, current_user)
     handler = CustomerSupportHandler(db)
     try:
         conv = await handler.close_conversation(conversation_id)
@@ -101,7 +119,8 @@ async def list_conversations(
     db: AsyncSession = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    """List customer support conversations."""
+    """List customer support conversations (store owner only)."""
+    await _get_store_or_404(db, store_id, current_user.id)
     handler = CustomerSupportHandler(db)
     convs = await handler.list_conversations(store_id, status)
     return [
@@ -123,7 +142,8 @@ async def get_conversation(
     db: AsyncSession = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    """Get full conversation with message history."""
+    """Get full conversation with message history (store owner only)."""
+    await _owned_conversation_or_404(db, conversation_id, current_user)
     handler = CustomerSupportHandler(db)
     data = await handler.get_conversation(conversation_id)
     if not data:
@@ -134,13 +154,24 @@ async def get_conversation(
 @router.get("/handoffs")
 async def list_handoffs(
     store_id: Optional[int] = Query(None),
-    limit: int = Query(50),
+    limit: int = Query(50, ge=1, le=200),
     db: AsyncSession = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    """List escalated conversations waiting for human attention."""
+    """List escalated conversations waiting for human attention.
+
+    Sirf user ke apne stores ka data: store_id diya ho to us store ka (ownership check ke saath),
+    warna user ke saare stores ka.
+    """
+    if store_id is not None:
+        await _get_store_or_404(db, store_id, current_user.id)
+        store_ids = [store_id]
+    else:
+        store_ids = list((await db.execute(
+            select(Store.id).where(Store.user_id == current_user.id)
+        )).scalars().all())
     handler = CustomerSupportHandler(db)
-    handoffs = await handler.list_handoffs(store_id, limit)
+    handoffs = await handler.list_handoffs(limit=limit, store_ids=store_ids)
     return [
         {
             "id": h.id,

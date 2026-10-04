@@ -609,7 +609,19 @@ class CustomerSupportHandler:
             ],
         }
 
-    async def list_handoffs(self, store_id: Optional[int] = None, limit: int = 50) -> list[HandoffLog]:
-        query = select(HandoffLog).order_by(HandoffLog.created_at.desc()).limit(limit)
-        res = await self.db.execute(query)
+    async def list_handoffs(
+        self,
+        store_id: Optional[int] = None,
+        limit: int = 50,
+        store_ids: Optional[list[int]] = None,
+    ) -> list[HandoffLog]:
+        """Handoff logs, newest first. store_id / store_ids se sirf un stores ki conversations
+        (pehle store_id ignore hota tha aur sab stores ki handoffs wapas aati thin)."""
+        ids = store_ids if store_ids is not None else ([store_id] if store_id is not None else None)
+        query = select(HandoffLog)
+        if ids is not None:
+            query = query.join(Conversation, Conversation.id == HandoffLog.conversation_id).where(
+                Conversation.store_id.in_(ids)
+            )
+        res = await self.db.execute(query.order_by(HandoffLog.created_at.desc(), HandoffLog.id.desc()).limit(limit))
         return list(res.scalars().all())
