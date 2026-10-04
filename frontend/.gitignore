@@ -7,3 +7,6 @@ coverage/
 *.log
 .env*
 !.env.example
+
+# TypeScript incremental build cache (regenerated on every tsc/next run)
+*.tsbuildinfo
