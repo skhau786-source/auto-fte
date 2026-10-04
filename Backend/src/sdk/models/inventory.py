@@ -54,3 +54,48 @@ class StockMovement(Base):
     __table_args__ = (
         Index("ix_stock_movements_store_created", "store_id", "created_at"),
     )
+
+
+# ─── StockReservation ─────────────────────────────────────────
+# Order ke liye stock hold. Reserve karte hi variant.inventory_quantity
+# kam hoti hai; release/expire par wapas add hoti hai; commit par
+# stock deducted hi rehta hai.
+#
+# Lifecycle: active → committed | released | expired | cancelled
+
+RESERVATION_ACTIVE = "active"
+RESERVATION_COMMITTED = "committed"
+RESERVATION_RELEASED = "released"
+RESERVATION_EXPIRED = "expired"
+RESERVATION_CANCELLED = "cancelled"
+RESERVATION_STATUSES = (
+    RESERVATION_ACTIVE, RESERVATION_COMMITTED, RESERVATION_RELEASED,
+    RESERVATION_EXPIRED, RESERVATION_CANCELLED,
+)
+RESERVATION_SOURCES = ("manual", "shopify", "woocommerce", "ai_agent", "api")
+
+
+class StockReservation(Base):
+    __tablename__ = "stock_reservations"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    store_id = Column(Integer, ForeignKey("stores.id"), nullable=False, index=True)
+    variant_id = Column(Integer, ForeignKey("variants.id", ondelete="CASCADE"), nullable=False, index=True)
+
+    order_id = Column(String(255), nullable=True, index=True)
+    order_source = Column(String(30), nullable=False, default="manual")
+    quantity = Column(Integer, nullable=False)
+    status = Column(String(20), nullable=False, default=RESERVATION_ACTIVE, index=True)
+    reason = Column(String(500), nullable=True)
+
+    expires_at = Column(DateTime(timezone=True), nullable=True, index=True)
+    committed_at = Column(DateTime(timezone=True), nullable=True)
+    released_at = Column(DateTime(timezone=True), nullable=True)
+
+    created_by = Column(Integer, ForeignKey("users.id"), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    __table_args__ = (
+        Index("ix_stock_reservations_store_status", "store_id", "status"),
+    )

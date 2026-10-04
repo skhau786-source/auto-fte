@@ -20,7 +20,11 @@ from src.sdk.config import get_settings
 from src.sdk.database import init_db
 from src.dependencies import init_event_bus, close_event_bus, close_llm_client
 from src.domains.auth.routes import router as auth_router
-from src.domains.ecommerce import routes_router, webhooks_router, oauth_router, inventory_router
+from src.sdk.database import async_session_factory
+from src.domains.ecommerce import (
+    routes_router, webhooks_router, oauth_router, inventory_router, reservation_router,
+)
+from src.domains.ecommerce.reservation_service import expire_stale_reservations
 from src.domains.chatbot.api import router as chatbot_router
 from src.domains.chatbot.rag_api import router as rag_router
 
@@ -81,12 +85,26 @@ async def _start_workers():
     return tasks
 
 
+async def _reservation_expiry_loop(interval_seconds: int = 60):
+    """Expired stock reservations ka stock wapas karta rahe."""
+    while True:
+        try:
+            async with async_session_factory() as db:
+                await expire_stale_reservations(db)
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            logger.warning(f"Reservation expiry sweep failed: {e}")
+        await asyncio.sleep(interval_seconds)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info(f"Starting {settings.APP_NAME} v{settings.APP_VERSION}")
     await init_db()
     await init_event_bus()
     workers = await _start_workers()
+    workers.append(asyncio.create_task(_reservation_expiry_loop()))
     logger.info("DB ready, event bus connected, workers running")
     yield
     for t in workers:
@@ -123,6 +141,7 @@ app.include_router(routes_router)
 app.include_router(webhooks_router)
 app.include_router(oauth_router)
 app.include_router(inventory_router)
+app.include_router(reservation_router)
 app.include_router(chatbot_router)
 app.include_router(rag_router)
 for _agent_router in _load_agent_routers():
