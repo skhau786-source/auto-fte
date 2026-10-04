@@ -310,6 +310,37 @@ class RAGService:
 
 # ─── Store-level lookup (customer chatbot) ────────────────────
 
+async def list_store_knowledge_topics(db: AsyncSession, store_id: int, limit: int = 4) -> list[str]:
+    """Store ki knowledge base ke document titles (customer ko hint dene ke liye).
+
+    Wahi scope jo search_store_knowledge ka hai. Titles unique, 40 chars tak.
+    """
+    owner_id = (await db.execute(select(Store.user_id).where(Store.id == store_id))).scalar_one_or_none()
+    if owner_id is None:
+        return []
+    titles = (await db.execute(
+        select(RagDocument.title)
+        .join(KnowledgeBase, KnowledgeBase.id == RagDocument.knowledge_base_id)
+        .where(
+            KnowledgeBase.user_id == owner_id,
+            KnowledgeBase.is_active == True,  # noqa: E712
+            or_(KnowledgeBase.store_id.is_(None), KnowledgeBase.store_id == store_id),
+            RagDocument.is_indexed == True,  # noqa: E712
+        )
+        .order_by(RagDocument.id)
+        .limit(limit * 5)
+    )).scalars().all()
+
+    seen: list[str] = []
+    for title in titles:
+        t = (title or "").strip()
+        if t and t[:40] not in seen:
+            seen.append(t[:40])
+        if len(seen) >= limit:
+            break
+    return seen
+
+
 async def search_store_knowledge(
     db: AsyncSession,
     store_id: int,

@@ -20,7 +20,7 @@ from src.sdk.exceptions import LLMError
 from src.sdk.llm.client import LLMClient
 from src.sdk.llm.prompts import SUPPORT_QA_PROMPT
 
-from src.domains.chatbot.rag_service import STOPWORDS, search_store_knowledge
+from src.domains.chatbot.rag_service import STOPWORDS, list_store_knowledge_topics, search_store_knowledge
 from src.domains.agents.customer_support.config import get_settings
 from src.domains.agents.customer_support.rules import (
     Intent,
@@ -169,11 +169,7 @@ class CustomerSupportHandler:
             if not reply_content:
                 reply_content = await self.answer_product_question(store_id, text, lang, strict=True)
             if not reply_content or "not found" in reply_content.lower() or "nahi mila" in reply_content.lower():
-                reply_content = (
-                    "Aapka sawal samajh nahi aya. Kya aap product ka naam ya order number bata saktay hain?"
-                    if lang in ("roman_urdu", "urdu")
-                    else "I'm not quite sure I understood. Could you please specify a product name or your order number?"
-                )
+                reply_content = await self._not_understood_reply(store_id, lang)
 
         # 5. Add bot message
         bot_msg = Message(
@@ -228,6 +224,50 @@ class CustomerSupportHandler:
             return ""
         hits = await self._knowledge_hits(store_id, text)
         return await self.answer_from_knowledge(text, language, hits) if hits else ""
+
+    # ─── "Samajh nahi aya" reply ────────────────────────────────
+
+    async def _knowledge_topics(self, store_id: int) -> list[str]:
+        """Owner ki knowledge base ke document titles (hint ke liye). Fail hone par khali."""
+        if not self.settings.KB_ENABLED:
+            return []
+        try:
+            return await list_store_knowledge_topics(self.db, store_id, limit=4)
+        except Exception as e:
+            logger.warning(f"Knowledge topics lookup failed (store={store_id}): {e}")
+            return []
+
+    def _human_trigger_phrase(self) -> str:
+        """Woh phrase jo handoff keywords mein hai, taake customer ka likha handoff trigger kare."""
+        keywords = [kw.lower() for kw in self.settings.HANDOFF_KEYWORDS]
+        for phrase in ("talk to human", "speak to representative"):
+            if phrase in keywords:
+                return phrase
+        return ""
+
+    async def _not_understood_reply(self, store_id: int, language: str) -> str:
+        """Sawal samajh na aaye to: kya pooch sakte hain (hint) + human se baat ka option."""
+        roman = language in ("roman_urdu", "urdu")
+        topics = await self._knowledge_topics(store_id)
+        phrase = self._human_trigger_phrase()
+
+        if roman:
+            text = "Aapka sawal samajh nahi aya. Kya aap product ka naam ya order number bata saktay hain?"
+            if topics:
+                text += f" Aap in ke baray me bhi pooch saktay hain: {', '.join(topics)}."
+            else:
+                text += " Aap products, stock ya apne order ke baray me pooch saktay hain."
+            if phrase:
+                text += f' Ya "{phrase}" likhein, main aap ko support team se mila doon ga.'
+        else:
+            text = "I'm not quite sure I understood. Could you please specify a product name or your order number?"
+            if topics:
+                text += f" You can also ask about: {', '.join(topics)}."
+            else:
+                text += " You can also ask about products, stock or your order status."
+            if phrase:
+                text += f' Or type "{phrase}" and I\'ll connect you with our support team.'
+        return text
 
     # ─── Knowledge base (RAG) ───────────────────────────────────
 

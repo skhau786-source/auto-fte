@@ -186,6 +186,58 @@ async def test_non_strict_keeps_old_first_product_fallback():
     assert "Canvas Backpack" in answer
 
 
+def handler_with_topics(topics):
+    handler = make(FakeLLM())
+
+    async def fake_topics(store_id):
+        return topics
+
+    handler._knowledge_topics = fake_topics
+    return handler
+
+
+async def test_not_understood_lists_knowledge_topics_and_human_option():
+    reply = await handler_with_topics(["Shipping policy", "Returns and refunds"])._not_understood_reply(1, "en")
+    assert reply.startswith("I'm not quite sure I understood.")
+    assert "You can also ask about: Shipping policy, Returns and refunds." in reply
+    assert 'type "talk to human"' in reply
+
+
+async def test_not_understood_roman_urdu():
+    reply = await handler_with_topics(["Shipping policy"])._not_understood_reply(1, "roman_urdu")
+    assert reply.startswith("Aapka sawal samajh nahi aya.")
+    assert "Aap in ke baray me bhi pooch saktay hain: Shipping policy." in reply
+    assert '"talk to human" likhein' in reply
+
+
+async def test_not_understood_without_knowledge_base_uses_generic_hint():
+    reply = await handler_with_topics([])._not_understood_reply(1, "en")
+    assert "You can also ask about products, stock or your order status." in reply
+    assert 'type "talk to human"' in reply
+
+
+async def test_not_understood_omits_human_option_if_not_a_handoff_keyword(monkeypatch):
+    handler = handler_with_topics([])
+    monkeypatch.setattr(handler.settings, "HANDOFF_KEYWORDS", ["refund"])
+    reply = await handler._not_understood_reply(1, "en")
+    assert "talk to human" not in reply
+
+
+def test_human_phrase_really_triggers_handoff():
+    from src.domains.agents.customer_support.rules import Intent, classify_intent
+
+    handler = make(FakeLLM())
+    phrase = handler._human_trigger_phrase()
+    assert phrase
+    intent = classify_intent(
+        phrase,
+        handoff_keywords=handler.settings.HANDOFF_KEYWORDS,
+        out_of_scope_keywords=handler.settings.OUT_OF_SCOPE_KEYWORDS,
+    )
+    assert intent == Intent.OUT_OF_SCOPE
+    assert handler._is_policy_question(phrase) is False  # knowledge base ke bajaye handoff hi hoga
+
+
 def test_trim_passage_cuts_at_sentence_boundary():
     text = "First sentence here. " * 60
     trimmed = CustomerSupportHandler._trim_passage(text, limit=100)
