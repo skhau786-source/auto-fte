@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Demo Store — website chat test page</title>
+<style>
+  body { margin: 0; font-family: system-ui, sans-serif; background: #f6f3ec; color: #1d1b16; }
+  header { background: #1d1b16; color: #f6f3ec; padding: 18px 28px; font-weight: 700; letter-spacing: .02em; }
+  main { max-width: 720px; margin: 36px auto; padding: 0 20px; }
+  .card { background: #fff; border-radius: 14px; padding: 22px 24px; margin-bottom: 18px; box-shadow: 0 1px 4px rgba(0,0,0,.08); }
+  code { background: #eee9dd; padding: 2px 6px; border-radius: 6px; font-size: .9em; }
+  .err { color: #a02323; font-weight: 600; }
+</style>
+</head>
+<body>
+<header>Demo Store</header>
+<main>
+  <div class="card">
+    <h2>A visitor's view of a store website</h2>
+    <p>This page stands in for a merchant's own site. The chat widget below identifies the store only by its
+       <b>public key</b> and works without any login.</p>
+    <p id="status">Loading widget…</p>
+    <p>Usage: <code>/demo-store.html?key=pk_…&amp;api=http://127.0.0.1:8000</code></p>
+  </div>
+</main>
+<script>
+  // The merchant embed code (copied from the dashboard) is one script tag with src=".../chatbot_free/chatbot.js",
+  // data-store-key="pk_..." and data-api-url="https://API". Here that tag is built from the URL
+  // so a single page can test any store.
+  (function () {
+    var params = new URLSearchParams(location.search);
+    var key = params.get("key");
+    var status = document.getElementById("status");
+    if (!key) { status.className = "err"; status.textContent = "Missing ?key=pk_… in the URL."; return; }
+    var s = document.createElement("script");
+    s.src = "/chatbot_free/chatbot.js";
+    s.async = true;
+    s.setAttribute("data-store-key", key);
+    s.setAttribute("data-api-url", params.get("api") || "http://127.0.0.1:8000");
+    s.onload = function () { status.textContent = "Widget loaded for store key " + key.slice(0, 8) + "…  Click the robot at the bottom-right."; };
+    document.body.appendChild(s);
+  })();
+</script>
+</body>
+</html>

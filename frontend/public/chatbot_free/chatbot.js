@@ -1,6 +1,65 @@
 ﻿(function () {
     "use strict";
 
+    // ─── Public website mode (data-store-key) ─────────────────
+    // Store ki website par embed (bina login visitor):
+    //   <script src="https://APP/chatbot_free/chatbot.js"
+    //           data-store-key="pk_..." data-api-url="https://API" async></script>
+    // Visitor ka anonymous session token localStorage mein; sirf apni chat; read-only sawal-jawab.
+    // data-store-key na ho to widget pehle jaisa chalta hai (logged-in / guest).
+
+    const SCRIPT_EL =
+        document.currentScript ||
+        document.querySelector("script[data-store-key]");
+
+    const STORE_KEY = SCRIPT_EL
+        ? (SCRIPT_EL.getAttribute("data-store-key") || "").trim()
+        : "";
+
+    const PUBLIC_MODE = STORE_KEY.length > 0;
+
+    // Robot image / CSS isi folder se (store ki website ka apna origin nahi)
+    const ASSET_BASE = (SCRIPT_EL && SCRIPT_EL.src)
+        ? SCRIPT_EL.src.split("?")[0].replace(/[^\/]*$/, "")
+        : "/chatbot_free/";
+
+    const PUBLIC_API_BASE = (
+        (SCRIPT_EL && SCRIPT_EL.getAttribute("data-api-url")) ||
+        window.DFTE_API_BASE ||
+        ""
+    ).replace(/\/+$/, "");
+
+    const PUBLIC_CHAT_URL =
+        PUBLIC_API_BASE + "/api/v1/public/stores/" +
+        encodeURIComponent(STORE_KEY) + "/chat";
+
+    const VISITOR_SESSION_KEY = "dfte_visitor_session_" + STORE_KEY;
+
+    function getVisitorSession() {
+        try {
+            return localStorage.getItem(VISITOR_SESSION_KEY);
+        } catch (_) {
+            return null;
+        }
+    }
+
+    function saveVisitorSession(token) {
+        try {
+            localStorage.setItem(VISITOR_SESSION_KEY, token);
+        } catch (_) {
+            // storage band ho to bhi chat chalti hai (is page load tak)
+        }
+    }
+
+    if (PUBLIC_MODE && !document.getElementById("dfte-chatbot-css")) {
+
+        const css = document.createElement("link");
+        css.id = "dfte-chatbot-css";
+        css.rel = "stylesheet";
+        css.href = ASSET_BASE + "chatbot.css";
+        document.head.appendChild(css);
+    }
+
     const API_URL =
         window.DFTE_CHATBOT_API || "/chatbot/query";
 
@@ -180,7 +239,7 @@
                 type="button"
             >
                 <img
-                    src="/chatbot_free/digital_fte_robot.png"
+                    src="${ASSET_BASE}digital_fte_robot.png"
                     alt="Digital FTE AI Assistant"
                 >
             </button>
@@ -206,7 +265,7 @@
 
                         <div class="dfte-logo">
                             <img
-                                src="/chatbot_free/digital_fte_robot.png"
+                                src="${ASSET_BASE}digital_fte_robot.png"
                                 alt="Digital FTE"
                             >
                         </div>
@@ -755,7 +814,42 @@
     let polling = false;
 
     function lastHumanKey() {
-        return "dfte_free_last_human_id_" + conversationId;
+        return "dfte_free_last_human_id_" + (PUBLIC_MODE ? STORE_KEY : conversationId);
+    }
+
+    // Poll tabhi jab polling ke liye kuch ho: public mein session token, warna conversation id
+    function canPoll() {
+        return PUBLIC_MODE ? !!getVisitorSession() : !!conversationId;
+    }
+
+    function chatUrl() {
+        return PUBLIC_MODE ? PUBLIC_CHAT_URL : API_URL;
+    }
+
+    function pollRequest(token) {
+
+        if (PUBLIC_MODE) {
+            return fetch(
+                PUBLIC_CHAT_URL + "/messages?after_id=" + getLastHumanId(),
+                {
+                    headers: {
+                        "Accept": "application/json",
+                        "X-Visitor-Session": token
+                    }
+                }
+            );
+        }
+
+        return fetch(
+            pollBase() + "/chatbot/conversations/" + conversationId +
+            "/messages?after_id=" + getLastHumanId(),
+            {
+                headers: {
+                    "Accept": "application/json",
+                    "Authorization": "Bearer " + token
+                }
+            }
+        );
     }
 
     function getLastHumanId() {
@@ -815,11 +909,11 @@
 
     async function pollSupportReplies() {
 
-        if (polling || !conversationId || !chatIsOpen() || document.hidden) {
+        if (polling || !canPoll() || !chatIsOpen() || document.hidden) {
             return;
         }
 
-        const token = getToken();
+        const token = PUBLIC_MODE ? getVisitorSession() : getToken();
 
         if (!token) {
             return;
@@ -829,16 +923,7 @@
 
         try {
 
-            const response = await fetch(
-                pollBase() + "/chatbot/conversations/" + conversationId +
-                "/messages?after_id=" + getLastHumanId(),
-                {
-                    headers: {
-                        "Accept": "application/json",
-                        "Authorization": "Bearer " + token
-                    }
-                }
-            );
+            const response = await pollRequest(token);
 
             if (response.status === 401 || response.status === 404) {
                 stopPolling();
@@ -868,7 +953,7 @@
 
     function startPolling() {
 
-        if (pollTimer || !conversationId || !chatIsOpen() || document.hidden) {
+        if (pollTimer || !canPoll() || !chatIsOpen() || document.hidden) {
             return;
         }
 
@@ -944,8 +1029,15 @@
                     "application/json"
             };
 
+            // Public mode mein JWT kabhi nahi bheja jata (owner us browser mein login ho tab bhi)
             const token =
-                getToken();
+                PUBLIC_MODE ? null : getToken();
+
+            if (PUBLIC_MODE && getVisitorSession()) {
+
+                headers["X-Visitor-Session"] =
+                    getVisitorSession();
+            }
 
             if (token) {
 
@@ -957,7 +1049,7 @@
 
             const response =
                 await fetch(
-                    API_URL,
+                    chatUrl(),
                     {
                         method:
                             "POST",
@@ -995,6 +1087,14 @@
             conversationId =
                 result.conversation_id ||
                 conversationId;
+
+            if (result.session_token) {
+                saveVisitorSession(result.session_token);
+            }
+
+            if (PUBLIC_MODE) {
+                startPolling();
+            }
 
             if (conversationId) {
 
