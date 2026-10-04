@@ -13,10 +13,27 @@ from src.domains.auth.google_oauth import GoogleTokenInvalid, verify_google_toke
 security = HTTPBearer(auto_error=False)
 
 
+async def _unique_username(db: AsyncSession, base_username: str) -> str:
+    """Base se shuru ho kar pehla unused username dhundhta hai."""
+    base = "".join(c for c in base_username if c.isalnum() or c in "._-")[:40] or "user"
+    if len(base) < 3:
+        base = f"{base}user"
+    username = base
+    suffix = 1
+    while True:
+        res = await db.execute(select(User).where(User.username == username))
+        if not res.scalars().first():
+            return username
+        username = f"{base}{suffix}"
+        suffix += 1
+
+
 async def create_local_user(db: AsyncSession, data: SignupRequest) -> User:
     """Signup - username ya email pehle se ho to 409 conflict."""
-    stmt = select(User).where(or_(User.email == data.email, User.username == data.username))
-    res = await db.execute(stmt)
+    conditions = [User.email == data.email]
+    if data.username:
+        conditions.append(User.username == data.username)
+    res = await db.execute(select(User).where(or_(*conditions)))
     existing = res.scalars().first()
 
     if existing:
@@ -25,8 +42,9 @@ async def create_local_user(db: AsyncSession, data: SignupRequest) -> User:
             detail="Username or email already registered",
         )
 
+    username = data.username or await _unique_username(db, data.email.split("@")[0])
     user = User(
-        username=data.username,
+        username=username,
         email=data.email,
         full_name=data.full_name,
         hashed_password=hash_password(data.password),
@@ -69,17 +87,7 @@ async def get_or_create_google_user(db: AsyncSession, google_token: str) -> User
         await db.refresh(user)
         return user
 
-    base_username = info["email"].split("@")[0]
-    username = base_username
-    suffix = 1
-
-    while True:
-        stmt = select(User).where(User.username == username)
-        res = await db.execute(stmt)
-        if not res.scalars().first():
-            break
-        username = f"{base_username}{suffix}"
-        suffix += 1
+    username = await _unique_username(db, info["email"].split("@")[0])
 
     user = User(
         username=username,
