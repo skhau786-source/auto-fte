@@ -7,6 +7,7 @@ import { Badge, Btn, Card, Empty, Spinner, fmtDate, inputCls, useToasts } from "
 import {
   apiFetch, ApiError, ConversationStatus, InboxItem, InboxList, InboxThread, Store, ThreadMessage,
 } from "../lib/api";
+import { WebsiteChatPanel } from "./WebsiteChatPanel";
 
 const POLL_MS = 15000;
 const MAX_REPLY = 4000;
@@ -83,6 +84,7 @@ function InboxWorkspace() {
           </select>
         </div>
       )}
+      <WebsiteChatPanel key={`wc-${storeId}`} storeId={storeId} toast={toast} />
       <InboxPanes key={storeId} storeId={storeId} toast={toast} />
       {toastNode}
     </>
