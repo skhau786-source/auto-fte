@@ -14,3 +14,4 @@ from src.sdk.models.support import *
 from src.sdk.models.workflow import *
 from src.sdk.models.rag import *
 from src.sdk.models.inventory import *
+from src.sdk.models.public_chat import *

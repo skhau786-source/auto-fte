@@ -13,7 +13,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
-from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi import Limiter
 from slowapi.util import get_remote_address
 
 from src.sdk.config import get_settings
@@ -29,6 +29,10 @@ from src.domains.ecommerce.reservation_service import expire_stale_reservations
 from src.domains.chatbot.api import router as chatbot_router
 from src.domains.chatbot.rag_api import router as rag_router
 from src.domains.chatbot.inbox_api import router as inbox_router
+from src.domains.chatbot.public_chat_api import public_router as public_chat_router
+from src.domains.chatbot.public_chat_api import owner_router as public_chat_owner_router
+from src.domains.chatbot.public_cors import PublicCorsMiddleware
+from src.domains.security.rate_limit_handler import handle_429
 
 logging.basicConfig(
     level=logging.INFO,
@@ -124,7 +128,7 @@ app = FastAPI(
 
 limiter = Limiter(key_func=get_remote_address)
 app.state.limiter = limiter
-app.add_exception_handler(429, _rate_limit_exceeded_handler)
+app.add_exception_handler(429, handle_429)  # slowapi + plain HTTPException(429) dono (pehle plain par 500 aata tha)
 
 app.mount("/static/chatbot_free", StaticFiles(directory="chatbot_free"), name="chatbot-free-static")
 app.mount("/static/chatbot_pro", StaticFiles(directory="chatbot_pro"), name="chatbot-pro-static")
@@ -137,6 +141,8 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+# /api/v1/public/* kisi bhi origin se (store ki website); CORSMiddleware ke baad add hua = bahar wala
+app.add_middleware(PublicCorsMiddleware)
 
 app.include_router(auth_router)
 app.include_router(routes_router)
@@ -148,6 +154,8 @@ app.include_router(aggregation_router)
 app.include_router(chatbot_router)
 app.include_router(rag_router)
 app.include_router(inbox_router)
+app.include_router(public_chat_router)
+app.include_router(public_chat_owner_router)
 for _agent_router in _load_agent_routers():
     app.include_router(_agent_router)
 

@@ -60,6 +60,18 @@ class Settings(BaseSettings):
     RATE_LIMIT_LOGIN_MAX_ATTEMPTS: int = 5
     RATE_LIMIT_LOGIN_WINDOW_SECONDS: int = 900
 
+    # Public website chat (anjaan visitors, bina login) — /api/v1/public/stores/{key}/chat
+    PUBLIC_CHAT_ENABLED: bool = True
+    PUBLIC_CHAT_MAX_QUERY_CHARS: int = 1000
+    PUBLIC_CHAT_SESSION_TTL_DAYS: int = 30
+    PUBLIC_CHAT_CHAT_PER_IP_PER_MINUTE: int = 30
+    PUBLIC_CHAT_CHAT_PER_SESSION_PER_MINUTE: int = 10
+    PUBLIC_CHAT_POLL_PER_IP_PER_MINUTE: int = 120
+    PUBLIC_CHAT_POLL_PER_SESSION_PER_MINUTE: int = 30
+    PUBLIC_CHAT_NEW_SESSIONS_PER_IP_PER_HOUR: int = 20
+    # True sirf tab jab app trusted reverse proxy ke peeche ho (warna X-Forwarded-For spoof ho sakta hai)
+    TRUST_PROXY_HEADERS: bool = False
+
     # LLM API — content gen, comment engagement, customer support
     # Default: Google Gemini (gemini-2.0-flash-exp is fast + cheap, good for our use cases)
     LLM_API_KEY: str = ""

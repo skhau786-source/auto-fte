@@ -81,8 +81,13 @@ class CustomerSupportHandler:
         text: str,
         conversation_id: Optional[int] = None,
         language: str = "",
+        public: bool = False,
     ) -> dict:
-        """Main chat entry point: ingest user message, route intent, produce reply."""
+        """Main chat entry point: ingest user message, route intent, produce reply.
+
+        public=True: anjaan website visitor. Sirf sawal-jawab, product price/stock aur policy
+        (knowledge base). Order lookup (customer data) aur cart actions band — woh human ko jate hain.
+        """
         lang = language or detect_language(text)
 
         # 1. Get or create Conversation
@@ -140,12 +145,7 @@ class CustomerSupportHandler:
             # requests aur hard keywords (scam, legal, ...) hamesha human ko jaate hain.
             reply_content = await self._try_policy_answer(store_id, text, lang)
             if not reply_content:
-                await self.handoff_to_human(conversation.id, reason=f"Out of scope keyword in: '{text}'")
-                reply_content = (
-                    "Main ne aapki request human support team ko forward kar di hai. Ek agent jald aap se contact karega."
-                    if lang in ("roman_urdu", "urdu")
-                    else "I have escalated your request to our human support team. A representative will get back to you shortly."
-                )
+                reply_content = await self._escalate(conversation.id, f"Out of scope keyword in: '{text}'", lang)
 
         elif intent == Intent.ORDER_STATUS:
             reply_content = ""
@@ -155,10 +155,21 @@ class CustomerSupportHandler:
                 hits = await self._knowledge_hits(store_id, text)
                 reply_content = await self.answer_from_knowledge(text, lang, hits) if hits else ""
             if not reply_content:
-                reply_content = await self.lookup_order_status(store_id, text, lang)
+                if public:
+                    # Order lookup customer data dikhata hai — anjaan visitor ko nahi; team se rabta
+                    reply_content = await self._escalate(
+                        conversation.id, f"Order question from website visitor: '{text}'", lang
+                    )
+                else:
+                    reply_content = await self.lookup_order_status(store_id, text, lang)
 
         elif intent == Intent.CART_ADD:
-            reply_content = await self.add_to_cart(store_id, conversation.id, text, lang)
+            if public:
+                reply_content = await self._escalate(
+                    conversation.id, f"Purchase request from website visitor: '{text}'", lang
+                )
+            else:
+                reply_content = await self.add_to_cart(store_id, conversation.id, text, lang)
 
         elif intent in (Intent.CART_REMOVE, Intent.CART_UPDATE):
             reply_content = (
@@ -211,6 +222,15 @@ class CustomerSupportHandler:
             "silent": False,
             "conversation_status": conversation.status,
         }
+
+    async def _escalate(self, conversation_id: int, reason: str, language: str) -> str:
+        """Chat human ko do (handoff) aur customer ko batane wala message return karo."""
+        await self.handoff_to_human(conversation_id, reason=reason)
+        return (
+            "Main ne aapki request human support team ko forward kar di hai. Ek agent jald aap se contact karega."
+            if language in ("roman_urdu", "urdu")
+            else "I have escalated your request to our human support team. A representative will get back to you shortly."
+        )
 
     async def _handoff_waiting_reply(self, conversation: Conversation, language: str) -> dict:
         """Handoff chat mein customer ka naya message: pehli dafa "team jald jawab degi",
