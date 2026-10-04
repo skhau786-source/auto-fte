@@ -15,6 +15,7 @@ from slowapi.util import get_remote_address
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from src.sdk.database import get_db
 from src.sdk.config import get_settings
@@ -367,12 +368,11 @@ async def list_products(
         count_query = count_query.where(Product.title.ilike(like))
     total = (await db.execute(count_query)).scalar() or 0
     offset = (page - 1) * limit
-    result = await db.execute(query.offset(offset).limit(limit))
-    items = []
-    for p in result.scalars().all():
-        v_result = await db.execute(select(Variant).where(Variant.product_id == p.id))
-        p.variants = v_result.scalars().all()
-        items.append(p)
+    # selectinload: variants ek saath load hote hain (async mein lazy load MissingGreenlet deta tha)
+    result = await db.execute(
+        query.options(selectinload(Product.variants)).order_by(Product.id).offset(offset).limit(limit)
+    )
+    items = list(result.scalars().all())
     return ProductListResponse(total=total, page=page, limit=limit, items=items)
 
 
@@ -386,13 +386,13 @@ async def get_product(
     """Get single product with variants by platform product ID."""
     await _get_store_or_404(db, store_id, current_user.id)
     result = await db.execute(
-        select(Product).where(Product.store_id == store_id, Product.platform_product_id == platform_product_id)
+        select(Product)
+        .where(Product.store_id == store_id, Product.platform_product_id == platform_product_id)
+        .options(selectinload(Product.variants))
     )
     product = result.scalar_one_or_none()
     if not product:
         raise HTTPException(status_code=404, detail="Product not found")
-    v_result = await db.execute(select(Variant).where(Variant.product_id == product.id))
-    product.variants = v_result.scalars().all()
     return product
 
 
@@ -449,12 +449,10 @@ async def list_orders(
     query = query.order_by(Order.ordered_at.desc())
     total = (await db.execute(count_query)).scalar() or 0
     offset = (page - 1) * limit
-    result = await db.execute(query.offset(offset).limit(limit))
-    items = []
-    for o in result.scalars().all():
-        i_result = await db.execute(select(OrderItem).where(OrderItem.order_id == o.id))
-        o.items = i_result.scalars().all()
-        items.append(o)
+    result = await db.execute(
+        query.options(selectinload(Order.items)).offset(offset).limit(limit)
+    )
+    items = list(result.scalars().all())
     return OrderListResponse(total=total, page=page, limit=limit, items=items)
 
 
