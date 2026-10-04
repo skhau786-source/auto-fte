@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
+import Link from "next/link";
 import { GoogleLogin } from "@react-oauth/google";
 import { 
   Mail, 
@@ -30,6 +31,7 @@ import {
   Youtube,
   Music,
   LayoutDashboard,
+  BookOpen,
   Package,
   Share2,
   Users,
@@ -647,6 +649,25 @@ export default function AuthPage() {
                       )}
                     </button>
                   ))}
+
+                  {/* Live pages (real store data) */}
+                  <div className="pt-3 mt-3 border-t border-slate-100/50">
+                    <p className="px-4 pb-1 text-[10px] font-bold uppercase tracking-widest text-slate-400">Live tools</p>
+                    <Link
+                      href="/inventory"
+                      className="w-full flex items-center gap-3 px-4 py-2.5 rounded-xl text-slate-500 hover:bg-slate-100/50 hover:text-slate-700 transition-all duration-300"
+                    >
+                      <span className="text-slate-400"><Package className="w-4 h-4" /></span>
+                      <span className="text-sm font-medium">Inventory Manager</span>
+                    </Link>
+                    <Link
+                      href="/knowledge-base"
+                      className="w-full flex items-center gap-3 px-4 py-2.5 rounded-xl text-slate-500 hover:bg-slate-100/50 hover:text-slate-700 transition-all duration-300"
+                    >
+                      <span className="text-slate-400"><BookOpen className="w-4 h-4" /></span>
+                      <span className="text-sm font-medium">Knowledge Base</span>
+                    </Link>
+                  </div>
                 </nav>
 
                 {/* Logout Button */}
@@ -830,6 +851,13 @@ export default function AuthPage() {
                 {/* ===== INVENTORY TAB ===== */}
                 {activeTab === 'inventory' && (
                   <div className="p-6 rounded-2xl bg-white/70 backdrop-blur-sm border border-slate-200/50">
+                    <Link
+                      href="/inventory"
+                      className="mb-4 flex items-center justify-between rounded-xl border border-amber-400/40 bg-amber-400/10 px-4 py-3 text-sm font-semibold text-amber-300 hover:bg-amber-400/20"
+                    >
+                      <span>Open the live Inventory Manager (real stock, reservations &amp; history)</span>
+                      <ArrowRight className="w-4 h-4" />
+                    </Link>
                     <div className="flex items-center justify-between mb-4">
                       <h3 className="text-lg font-bold text-slate-900">📦 Inventory Management</h3>
                       <button className="text-xs text-violet-600 font-bold hover:underline">+ Add Product</button>
