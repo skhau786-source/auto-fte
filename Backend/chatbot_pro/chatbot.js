@@ -298,6 +298,10 @@
 
         return (
             localStorage.getItem(
+                "digital-fte-token"
+            ) ||
+
+            localStorage.getItem(
                 "access_token"
             ) ||
 
@@ -377,7 +381,154 @@
             messages.scrollHeight;
     }
 
+    // ─── Support team replies (polling) ───────────────────────
+    // Owner inbox se aaye replies: sirf jab chat khula ho, har POLL_MS par, aur tab chhupa ho to ruk jaye.
+
+    const POLL_MS = 7000;
+    let pollTimer = null;
+    let polling = false;
+
+    function lastHumanKey() {
+        return "dfte_pro_last_human_id_" + conversationId;
+    }
+
+    function getLastHumanId() {
+        return Number(localStorage.getItem(lastHumanKey())) || 0;
+    }
+
+    function chatIsOpen() {
+        return windowEl.classList.contains("active");
+    }
+
+    function pollBase() {
+        return API_URL.replace(/\/(agent|chatbot)\/query\/?$/, "");
+    }
+
+    function supportLabel() {
+        return selectedLanguage === "urdu"
+            ? "\u0633\u067E\u0648\u0631\u0679 \u0679\u06CC\u0645"
+            : "Support team";
+    }
+
+    function addSupportMessage(text) {
+
+        const row = document.createElement("div");
+        row.className = "dfte-pro-message support";
+
+        const wrap = document.createElement("div");
+        wrap.className = "dfte-pro-support-wrap";
+
+        const label = document.createElement("span");
+        label.className = "dfte-pro-support-label";
+        label.textContent = supportLabel();
+
+        const bubble = document.createElement("div");
+        bubble.className = "dfte-pro-bubble";
+        bubble.textContent = text;
+
+        if (selectedLanguage === "urdu") {
+            bubble.dir = "rtl";
+            bubble.style.direction = "rtl";
+            bubble.style.textAlign = "right";
+        } else {
+            bubble.dir = "ltr";
+            bubble.style.direction = "ltr";
+            bubble.style.textAlign = "left";
+        }
+
+        wrap.appendChild(label);
+        wrap.appendChild(bubble);
+        row.appendChild(wrap);
+        messages.appendChild(row);
+        messages.scrollTop = messages.scrollHeight;
+    }
+
+    async function pollSupportReplies() {
+
+        if (polling || !conversationId || !chatIsOpen() || document.hidden) {
+            return;
+        }
+
+        const jwt = getToken();
+
+        if (!jwt) {
+            return;
+        }
+
+        polling = true;
+
+        try {
+
+            const response = await fetch(
+                pollBase() + "/chatbot/conversations/" + conversationId +
+                "/messages?after_id=" + getLastHumanId(),
+                {
+                    headers: {
+                        "Accept": "application/json",
+                        "Authorization": "Bearer " + jwt
+                    }
+                }
+            );
+
+            if (response.status === 401 || response.status === 404) {
+                stopPolling();
+                return;
+            }
+
+            if (!response.ok) {
+                return;
+            }
+
+            const data = await response.json();
+
+            (data.messages || []).forEach(function (m) {
+
+                if (m.id > getLastHumanId()) {
+                    addSupportMessage(m.content);
+                    localStorage.setItem(lastHumanKey(), String(m.id));
+                }
+            });
+
+        } catch (_) {
+            // network blip — agli baar dobara
+        } finally {
+            polling = false;
+        }
+    }
+
+    function startPolling() {
+
+        if (pollTimer || !conversationId || !chatIsOpen() || document.hidden) {
+            return;
+        }
+
+        pollSupportReplies();
+        pollTimer = setInterval(pollSupportReplies, POLL_MS);
+    }
+
+    function stopPolling() {
+
+        if (pollTimer) {
+            clearInterval(pollTimer);
+            pollTimer = null;
+        }
+    }
+
+    document.addEventListener("visibilitychange", function () {
+
+        if (document.hidden) {
+            stopPolling();
+        } else {
+            startPolling();
+        }
+    });
+
     function openChat() {
+        openChatWindow();
+        startPolling();
+    }
+
+    function openChatWindow() {
 
         windowEl.classList.add(
             "active"
@@ -394,6 +545,11 @@
     }
 
     function closeChat() {
+        stopPolling();
+        closeChatWindow();
+    }
+
+    function closeChatWindow() {
 
         windowEl.classList.remove(
             "active"
@@ -682,6 +838,8 @@
                     "dfte_pro_conversation_id",
                     String(conversationId)
                 );
+
+                startPolling();
             }
 
             const answer =
@@ -695,7 +853,7 @@
                     "bot"
                 );
 
-            } else {
+            } else if (!data.silent) {
 
                 addMessage(
                     selectedLanguage === "urdu"

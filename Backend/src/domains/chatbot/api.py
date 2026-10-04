@@ -16,13 +16,14 @@
 import logging
 from typing import Literal, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.sdk.database import get_db
 from src.sdk.models.base import Store
+from src.sdk.models.support import Conversation, Message
 from src.domains.auth.models import User
 from src.domains.auth.service import (
     get_current_user,
@@ -513,3 +514,67 @@ async def pro_agent_query(
         db,
         current_user,
     )
+
+
+# =============================================================
+# SUPPORT TEAM REPLIES (widget polling)
+# =============================================================
+
+@router.get("/chatbot/conversations/{conversation_id}/messages")
+async def conversation_support_replies(
+    conversation_id: int,
+    after_id: int = Query(0, ge=0),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Widget polling: support team (owner inbox) ke naye replies.
+
+    Sirf role=agent_human wale messages jinki id after_id se bari ho —
+    customer aur bot ke messages widget khud dikhata hai. Sirf us user ko
+    jiska yeh store hai; warna 404.
+    """
+
+    conv = (
+        await db.execute(
+            select(Conversation)
+            .join(Store, Store.id == Conversation.store_id)
+            .where(
+                Conversation.id == conversation_id,
+                Store.user_id == current_user.id,
+            )
+        )
+    ).scalar_one_or_none()
+
+    if conv is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Conversation not found",
+        )
+
+    rows = (
+        await db.execute(
+            select(Message)
+            .where(
+                Message.conversation_id == conv.id,
+                Message.role == "agent_human",
+                Message.id > after_id,
+            )
+            .order_by(Message.id)
+            .limit(50)
+        )
+    ).scalars().all()
+
+    return {
+        "conversation_id": conv.id,
+        "status": conv.status,
+        "messages": [
+            {
+                "id": m.id,
+                "role": m.role,
+                "content": m.content,
+                "created_at": m.created_at,
+            }
+            for m in rows
+        ],
+    }

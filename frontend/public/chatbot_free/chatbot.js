@@ -133,6 +133,7 @@
 
     function getToken() {
         const possibleKeys = [
+            "digital-fte-token",
             "access_token",
             "token",
             "jwt"
@@ -395,6 +396,8 @@
                     "active"
                 );
 
+                startPolling();
+
                 launcher.style.display =
                     "none";
 
@@ -412,6 +415,8 @@
                     "active"
                 );
 
+                startPolling();
+
                 launcher.style.display =
                     "none";
 
@@ -428,6 +433,8 @@
                 chatWindow.classList.remove(
                     "active"
                 );
+
+                stopPolling();
 
                 launcher.style.display =
                     "flex";
@@ -740,6 +747,152 @@
     // SEND MESSAGE
     // =========================================================
 
+    // ─── Support team replies (polling) ───────────────────────
+    // Owner inbox se aaye replies: sirf jab chat khula ho, har POLL_MS par, aur tab chhupa ho to ruk jaye.
+
+    const POLL_MS = 7000;
+    let pollTimer = null;
+    let polling = false;
+
+    function lastHumanKey() {
+        return "dfte_free_last_human_id_" + conversationId;
+    }
+
+    function getLastHumanId() {
+        return Number(localStorage.getItem(lastHumanKey())) || 0;
+    }
+
+    function chatIsOpen() {
+        const chatWindow = document.getElementById("dfte-window");
+        return !!chatWindow && chatWindow.classList.contains("active");
+    }
+
+    function pollBase() {
+        return API_URL.replace(/\/(agent|chatbot)\/query\/?$/, "");
+    }
+
+    function supportLabel() {
+        return selectedLanguage === "urdu"
+            ? "\u0633\u067E\u0648\u0631\u0679 \u0679\u06CC\u0645"
+            : "Support team";
+    }
+
+    function addSupportMessage(text) {
+
+        const messages = document.getElementById("dfte-messages");
+
+        const row = document.createElement("div");
+        row.className = "dfte-message support";
+
+        const wrap = document.createElement("div");
+        wrap.className = "dfte-support-wrap";
+
+        const label = document.createElement("span");
+        label.className = "dfte-support-label";
+        label.textContent = supportLabel();
+
+        const bubble = document.createElement("div");
+        bubble.className = "dfte-bubble";
+        bubble.textContent = text;
+
+        if (selectedLanguage === "urdu") {
+            bubble.dir = "rtl";
+            bubble.style.direction = "rtl";
+            bubble.style.textAlign = "right";
+        } else {
+            bubble.dir = "ltr";
+            bubble.style.direction = "ltr";
+            bubble.style.textAlign = "left";
+        }
+
+        wrap.appendChild(label);
+        wrap.appendChild(bubble);
+        row.appendChild(wrap);
+        messages.appendChild(row);
+
+        scrollToBottom();
+    }
+
+    async function pollSupportReplies() {
+
+        if (polling || !conversationId || !chatIsOpen() || document.hidden) {
+            return;
+        }
+
+        const token = getToken();
+
+        if (!token) {
+            return;
+        }
+
+        polling = true;
+
+        try {
+
+            const response = await fetch(
+                pollBase() + "/chatbot/conversations/" + conversationId +
+                "/messages?after_id=" + getLastHumanId(),
+                {
+                    headers: {
+                        "Accept": "application/json",
+                        "Authorization": "Bearer " + token
+                    }
+                }
+            );
+
+            if (response.status === 401 || response.status === 404) {
+                stopPolling();
+                return;
+            }
+
+            if (!response.ok) {
+                return;
+            }
+
+            const data = await response.json();
+
+            (data.messages || []).forEach(function (m) {
+
+                if (m.id > getLastHumanId()) {
+                    addSupportMessage(m.content);
+                    localStorage.setItem(lastHumanKey(), String(m.id));
+                }
+            });
+
+        } catch (_) {
+            // network blip — agli baar dobara
+        } finally {
+            polling = false;
+        }
+    }
+
+    function startPolling() {
+
+        if (pollTimer || !conversationId || !chatIsOpen() || document.hidden) {
+            return;
+        }
+
+        pollSupportReplies();
+        pollTimer = setInterval(pollSupportReplies, POLL_MS);
+    }
+
+    function stopPolling() {
+
+        if (pollTimer) {
+            clearInterval(pollTimer);
+            pollTimer = null;
+        }
+    }
+
+    document.addEventListener("visibilitychange", function () {
+
+        if (document.hidden) {
+            stopPolling();
+        } else {
+            startPolling();
+        }
+    });
+
     async function sendMessage() {
 
         if (
@@ -849,20 +1002,25 @@
                     "dfte_free_conversation_id",
                     String(conversationId)
                 );
+
+                startPolling();
             }
 
-            addMessage(
-                "bot",
-                result.answer ||
-                result.message ||
-                (
-                    selectedLanguage === "urdu"
-                        ? URDU.error
-                        : selectedLanguage === "roman_urdu"
-                            ? "Request processed successfully."
-                            : "Request processed successfully."
-                )
-            );
+            if (!result.silent) {
+
+                addMessage(
+                    "bot",
+                    result.answer ||
+                    result.message ||
+                    (
+                        selectedLanguage === "urdu"
+                            ? URDU.error
+                            : selectedLanguage === "roman_urdu"
+                                ? "Request processed successfully."
+                                : "Request processed successfully."
+                    )
+                );
+            }
 
         } catch (error) {
 
