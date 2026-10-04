@@ -3,13 +3,14 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
-import { Boxes, BookOpen, Home, LogIn } from "lucide-react";
+import { Boxes, BookOpen, Home, LogIn, MessageSquare } from "lucide-react";
 import { getToken } from "../../lib/api";
 import { Card } from "./ui";
 
 const TABS = [
   { href: "/inventory", label: "Inventory", icon: Boxes },
   { href: "/knowledge-base", label: "Knowledge Base", icon: BookOpen },
+  { href: "/inbox", label: "Inbox", icon: MessageSquare },
 ];
 
 // Header + login guard shared by /inventory and /knowledge-base.

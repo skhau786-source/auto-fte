@@ -214,3 +214,45 @@ export interface AugmentResult {
 export interface VariantLabelMap {
   [variantId: number]: string;
 }
+
+// ─── Types: support inbox ────────────────────────────────────
+
+export type ConversationStatus = "open" | "handoff" | "closed";
+
+export interface InboxItem {
+  id: number;
+  customer_email: string;
+  status: ConversationStatus;
+  created_at: string;
+  last_activity: string;
+  last_message: string;
+  last_role: string | null;
+  awaiting_reply: boolean;
+  message_count: number;
+  handoff_reason: string | null;
+}
+
+export interface InboxList {
+  items: InboxItem[];
+  total: number;
+  page: number;
+  page_size: number;
+  counts: Record<ConversationStatus, number>;
+}
+
+export interface ThreadMessage {
+  id: number;
+  role: "customer" | "agent_bot" | "agent_human" | string;
+  content: string;
+  created_at: string;
+}
+
+export interface InboxThread {
+  id: number;
+  customer_email: string;
+  status: ConversationStatus;
+  created_at: string;
+  closed_at: string | null;
+  messages: ThreadMessage[];
+  handoffs: { id: number; reason: string; assigned_to: string; created_at: string }[];
+}
