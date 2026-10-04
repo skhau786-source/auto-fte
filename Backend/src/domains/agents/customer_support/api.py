@@ -58,7 +58,12 @@ async def chat(
     db: AsyncSession = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    """Customer chat message endpoint (handles RAG, cart, order lookup, handoff)."""
+    """Owner/dashboard chat endpoint (RAG, cart, order lookup, handoff) — sirf apne store par.
+
+    Anjaan website visitors ke liye alag public endpoint hai:
+    POST /api/v1/public/stores/{public_store_key}/chat
+    """
+    await _get_store_or_404(db, body.store_id, current_user.id)
     handler = CustomerSupportHandler(db)
     result = await handler.process_message(
         store_id=body.store_id,
