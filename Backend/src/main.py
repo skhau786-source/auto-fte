@@ -28,6 +28,7 @@ from src.domains.ecommerce import (
 from src.domains.ecommerce.reservation_service import expire_stale_reservations
 from src.domains.chatbot.api import router as chatbot_router
 from src.domains.chatbot.rag_api import router as rag_router
+from src.domains.chatbot.inbox_api import router as inbox_router
 
 logging.basicConfig(
     level=logging.INFO,
@@ -146,6 +147,7 @@ app.include_router(reservation_router)
 app.include_router(aggregation_router)
 app.include_router(chatbot_router)
 app.include_router(rag_router)
+app.include_router(inbox_router)
 for _agent_router in _load_agent_routers():
     app.include_router(_agent_router)
 
