@@ -45,7 +45,6 @@ import {
   Cpu,
   HelpCircle,
   ChevronDown,
-  Star,
 } from "lucide-react";
 import { InteractiveRobot } from "./components/InteractiveRobot";
 import { LaunchActivationScreen } from "./components/onboarding/LaunchActivationScreen";
