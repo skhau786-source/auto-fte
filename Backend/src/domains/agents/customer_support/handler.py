@@ -16,9 +16,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.sdk.models.base import Store, Product, Variant, Order
 from src.sdk.models.support import Conversation, Message, HandoffLog
 from src.sdk.events import Event, SupportTicketEvent
+from src.sdk.exceptions import LLMError
 from src.sdk.llm.client import LLMClient
 from src.sdk.llm.prompts import SUPPORT_QA_PROMPT
 
+from src.domains.chatbot.rag_service import search_store_knowledge
 from src.domains.agents.customer_support.config import get_settings
 from src.domains.agents.customer_support.rules import (
     Intent,
@@ -30,6 +32,23 @@ from src.domains.agents.customer_support.rules import (
 from src.domains.agents.customer_support.shopify_storefront_client import ShopifyStorefrontClient
 
 logger = logging.getLogger(__name__)
+
+# Knowledge base se jawab: LLM sirf diye hue passages se bole, warna saaf bata de.
+KNOWLEDGE_QA_PROMPT = """
+Answer the customer's question using ONLY the store information below.
+If the information does not answer the question, reply exactly: NOT_COVERED
+Do not invent policies, prices, dates or contact details.
+Reply in this language: {language} (en = English, roman_urdu = Roman Urdu, urdu = Urdu).
+
+Question: {query}
+
+Store information:
+{passages}
+
+Be concise and friendly.
+"""
+
+KNOWLEDGE_NOT_COVERED = "NOT_COVERED"
 
 
 class CustomerSupportHandler:
@@ -104,7 +123,14 @@ class CustomerSupportHandler:
             )
 
         elif intent == Intent.ORDER_STATUS:
-            reply_content = await self.lookup_order_status(store_id, text, lang)
+            reply_content = ""
+            # "delivery"/"tracking" jaise alfaz general policy sawalon mein bhi aate hain
+            # ("cash on delivery?"). Order number/email na ho to pehle knowledge base dekho.
+            if not (re.search(r"#?\d{3,8}", text) or re.search(r"[\w\.-]+@[\w\.-]+", text)):
+                hits = await self._knowledge_hits(store_id, text)
+                reply_content = await self.answer_from_knowledge(text, lang, hits) if hits else ""
+            if not reply_content:
+                reply_content = await self.lookup_order_status(store_id, text, lang)
 
         elif intent == Intent.CART_ADD:
             reply_content = await self.add_to_cart(store_id, conversation.id, text, lang)
@@ -117,7 +143,11 @@ class CustomerSupportHandler:
             )
 
         elif intent == Intent.PRODUCT_QUESTION:
-            reply_content = await self.answer_product_question(store_id, text, lang)
+            # Catalog se jawab; owner ki knowledge base ke passages FAQ ke taur par saath jaate hain
+            hits = await self._knowledge_hits(store_id, text)
+            reply_content = await self.answer_product_question(
+                store_id, text, lang, knowledge_hits=hits
+            )
 
         elif intent == Intent.GREETING:
             reply_content = (
@@ -127,8 +157,13 @@ class CustomerSupportHandler:
             )
 
         else:  # FALLBACK
-            # Try product question first, else generic fallback
-            reply_content = await self.answer_product_question(store_id, text, lang)
+            # 1. Owner ki knowledge base (policies, FAQs) se jawab
+            hits = await self._knowledge_hits(store_id, text)
+            reply_content = await self.answer_from_knowledge(text, lang, hits) if hits else ""
+
+            # 2. Warna product question, warna generic fallback
+            if not reply_content:
+                reply_content = await self.answer_product_question(store_id, text, lang)
             if not reply_content or "not found" in reply_content.lower() or "nahi mila" in reply_content.lower():
                 reply_content = (
                     "Aapka sawal samajh nahi aya. Kya aap product ka naam ya order number bata saktay hain?"
@@ -154,8 +189,77 @@ class CustomerSupportHandler:
             "language": lang,
         }
 
-    async def answer_product_question(self, store_id: int, query: str, language: str = "en") -> str:
-        """Answer product questions using live DB catalog (never guessed)."""
+    # ─── Knowledge base (RAG) ───────────────────────────────────
+
+    async def _knowledge_hits(self, store_id: int, query: str) -> list[dict]:
+        """Store owner ki knowledge base se relevant passages. Fail hone par chat na toote."""
+        if not self.settings.KB_ENABLED:
+            return []
+        try:
+            return await search_store_knowledge(
+                self.db,
+                store_id,
+                query,
+                top_k=self.settings.KB_TOP_K,
+                min_score=self.settings.KB_MIN_SCORE,
+            )
+        except Exception as e:
+            logger.warning(f"Knowledge base lookup failed (store={store_id}): {e}")
+            return []
+
+    @staticmethod
+    def _format_passages(hits: list[dict]) -> str:
+        return "\n\n".join(f"[{h['document_title']}]\n{h['content']}" for h in hits)
+
+    @staticmethod
+    def _trim_passage(text: str, limit: int = 700) -> str:
+        if len(text) <= limit:
+            return text
+        cut = text[:limit]
+        end = max(cut.rfind(". "), cut.rfind("\n"))
+        return (cut[: end + 1] if end > limit // 3 else cut).strip() + " …"
+
+    async def answer_from_knowledge(self, query: str, language: str, hits: list[dict]) -> str:
+        """Knowledge base passages se jawab. "" return hota hai agar passages sawal ka jawab nahi dete.
+
+        LLM ho to sirf passages se jawab banata hai; LLM na ho (ya fail ho) to
+        sabse relevant passage seedha dikhata hai (kuch invent nahi hota).
+        """
+        if not hits:
+            return ""
+        prompt = KNOWLEDGE_QA_PROMPT.format(
+            language=language or "en", query=query, passages=self._format_passages(hits)
+        )
+        try:
+            answer = (await self.llm.generate(
+                prompt, system="You are a helpful customer support agent for an online store."
+            )).strip()
+            if not answer or KNOWLEDGE_NOT_COVERED in answer:
+                return ""
+            return answer
+        except Exception as e:
+            logger.info(f"LLM unavailable for knowledge answer, using extractive fallback: {e}")
+            best = self._trim_passage(hits[0]["content"])
+            intro = (
+                "Hamari store information ke mutabiq:"
+                if language in ("roman_urdu", "urdu")
+                else "Here is what our store information says:"
+            )
+            return f"{intro}\n\n{best}"
+
+    async def answer_product_question(
+        self,
+        store_id: int,
+        query: str,
+        language: str = "en",
+        knowledge_hits: Optional[list[dict]] = None,
+    ) -> str:
+        """Answer product questions using live DB catalog (never guessed).
+
+        knowledge_hits: owner ki knowledge base ke passages. Koi product match na ho
+        to inhi se jawab diya jata hai (arbitrary pehla product dikhane se behtar);
+        warna FAQ ke taur par LLM prompt mein jaate hain.
+        """
         # Fetch active products for this store
         res = await self.db.execute(
             select(Product).where(Product.store_id == store_id)
@@ -187,6 +291,11 @@ class CustomerSupportHandler:
         scored.sort(key=lambda x: x["score"], reverse=True)
         top_matches = scored[: self.settings.MAX_RAG_PRODUCTS]
 
+        if not top_matches and knowledge_hits:
+            answer = await self.answer_from_knowledge(query, language, knowledge_hits)
+            if answer:
+                return answer
+
         if not top_matches:
             # Fallback to the first product if general inquiry
             p = products[0]
@@ -197,11 +306,11 @@ class CustomerSupportHandler:
 
         # Try LLM RAG with prompt
         rag_context = build_rag_context(top_matches)
-        prompt = SUPPORT_QA_PROMPT.format(query=query, context=rag_context, faq_data="")
+        prompt = SUPPORT_QA_PROMPT.format(query=query, context=rag_context, faq_data=self._format_passages(knowledge_hits or []))
         try:
             return await self.llm.generate(prompt, system="You are a helpful customer support agent.")
-        except NotImplementedError:
-            # Deterministic fallback using live catalog price/stock
+        except (NotImplementedError, LLMError):
+            # LLM nahi (ya key khaali) — deterministic fallback using live catalog price/stock
             best = top_matches[0]
             prod = best["product"]
             variants = best["variants"]

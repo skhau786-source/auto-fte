@@ -20,10 +20,11 @@ import time
 from datetime import datetime, timezone
 from typing import Optional
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.sdk.exceptions import AgentError
+from src.sdk.models.base import Store
 from src.sdk.models.rag import KnowledgeBase, RagDocument, RagChunk, RagRetrieval
 
 logger = logging.getLogger(__name__)
@@ -34,7 +35,10 @@ _WORD_RE = re.compile(r"\w+", re.UNICODE)
 _STOPWORDS = frozenset(
     "a an and are as at be but by can do does did for from had has have how i if in is it "
     "its me my of on or our so that the their them then there these they this to us was we "
-    "what when where which who why will with you your".split()
+    "what when where which who why will with you your "
+    # Roman Urdu ke aam alfaz
+    "hai hain ho hoti hota hote hoga ka ki ke kya kitne kitna kitni din mein me se ko par aur "
+    "aap apka apki aapka aapki kaise kab kahan mera meri hum tha thi kar karte karta kia".split()
 )
 
 
@@ -300,3 +304,69 @@ class RAGService:
             "source_documents": len({c["document_id"] for c in chunks}),
             "tokens_added": len(context) // 4,
         }
+
+
+# ─── Store-level lookup (customer chatbot) ────────────────────
+
+async def search_store_knowledge(
+    db: AsyncSession,
+    store_id: int,
+    query: str,
+    top_k: int = 3,
+    min_score: float = 0.3,
+) -> list[dict]:
+    """Store owner ki knowledge bases mein search (customer_support chat ke liye).
+
+    Owner ki woh saari active knowledge bases search hoti hain jo is store ke
+    liye hain (store_id match) ya kisi bhi store ke liye (store_id NULL).
+    Sirf flush karta hai, commit caller karta hai.
+    """
+    owner_id = (await db.execute(select(Store.user_id).where(Store.id == store_id))).scalar_one_or_none()
+    query_terms = _query_terms(query)
+    if owner_id is None or not query_terms:
+        return []
+
+    started = time.perf_counter()
+    rows = (await db.execute(
+        select(RagChunk, RagDocument.title)
+        .join(RagDocument, RagDocument.id == RagChunk.document_id)
+        .join(KnowledgeBase, KnowledgeBase.id == RagChunk.knowledge_base_id)
+        .where(
+            KnowledgeBase.user_id == owner_id,
+            KnowledgeBase.is_active == True,  # noqa: E712
+            or_(KnowledgeBase.store_id.is_(None), KnowledgeBase.store_id == store_id),
+            RagChunk.is_indexed == True,  # noqa: E712
+        )
+    )).all()
+
+    scored = []
+    for chunk, title in rows:
+        score = len(query_terms & _terms(chunk.content)) / len(query_terms)
+        if score >= min_score:
+            scored.append((chunk, title, score))
+    scored.sort(key=lambda x: x[2], reverse=True)
+    scored = scored[:top_k]
+    if not scored:
+        return []
+
+    db.add(RagRetrieval(
+        user_id=None,  # customer ki query, owner ki nahi
+        knowledge_base_id=scored[0][0].knowledge_base_id,
+        query=query[:2000],
+        retrieved_chunk_ids=[c.id for c, _, _ in scored],
+        similarity_scores=[round(s, 4) for _, _, s in scored],
+        retrieved_count=len(scored),
+        retrieval_time_ms=int((time.perf_counter() - started) * 1000),
+    ))
+    await db.flush()
+
+    return [
+        {
+            "id": c.id,
+            "document_id": c.document_id,
+            "document_title": title,
+            "content": c.content,
+            "similarity_score": round(score, 4),
+        }
+        for c, title, score in scored
+    ]

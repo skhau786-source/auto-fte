@@ -41,6 +41,10 @@ def test_query_terms_drop_stopwords():
     assert _query_terms("How long does shipping take?") == {"long", "shipping", "take"}
 
 
+def test_query_terms_drop_roman_urdu_stopwords():
+    assert _query_terms("shipping kitne din mein hoti hai") == {"shipping"}
+
+
 def test_query_terms_keep_all_if_only_stopwords():
     assert _query_terms("what is the") == {"what", "is", "the"}
 

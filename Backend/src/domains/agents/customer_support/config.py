@@ -62,6 +62,11 @@ class Settings(BaseSettings):
 
     MAX_RAG_PRODUCTS: int = 5
 
+    # Knowledge base (owner ke uploaded documents) se jawab
+    KB_ENABLED: bool = True
+    KB_TOP_K: int = 3
+    KB_MIN_SCORE: float = 0.3   # query ke meaningful words ka kitna hissa match ho
+
     SUPPORTED_LANGUAGES: list[str] = [
         "en",
         "roman_urdu",
