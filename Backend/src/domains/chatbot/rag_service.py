@@ -32,10 +32,12 @@ logger = logging.getLogger(__name__)
 _WORD_RE = re.compile(r"\w+", re.UNICODE)
 
 
-_STOPWORDS = frozenset(
+STOPWORDS = frozenset(
     "a an and are as at be but by can do does did for from had has have how i if in is it "
     "its me my of on or our so that the their them then there these they this to us was we "
     "what when where which who why will with you your "
+    # Aam "request" ke alfaz jo kisi topic ki nishani nahi
+    "about tell show give want need get please any some know "
     # Roman Urdu ke aam alfaz
     "hai hain ho hoti hota hote hoga ka ki ke kya kitne kitna kitni din mein me se ko par aur "
     "aap apka apki aapka aapki kaise kab kahan mera meri hum tha thi kar karte karta kia".split()
@@ -49,7 +51,7 @@ def _terms(text: str) -> set[str]:
 def _query_terms(query: str) -> set[str]:
     """Query ke meaningful words; agar sab stopwords hon to sab rakho."""
     terms = _terms(query)
-    return (terms - _STOPWORDS) or terms
+    return (terms - STOPWORDS) or terms
 
 
 def chunk_text(content: str, chunk_size: int = 1000, overlap: int = 200) -> list[str]:

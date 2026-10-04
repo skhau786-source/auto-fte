@@ -20,7 +20,7 @@ from src.sdk.exceptions import LLMError
 from src.sdk.llm.client import LLMClient
 from src.sdk.llm.prompts import SUPPORT_QA_PROMPT
 
-from src.domains.chatbot.rag_service import search_store_knowledge
+from src.domains.chatbot.rag_service import STOPWORDS, search_store_knowledge
 from src.domains.agents.customer_support.config import get_settings
 from src.domains.agents.customer_support.rules import (
     Intent,
@@ -165,9 +165,9 @@ class CustomerSupportHandler:
             hits = await self._knowledge_hits(store_id, text)
             reply_content = await self.answer_from_knowledge(text, lang, hits) if hits else ""
 
-            # 2. Warna product question, warna generic fallback
+            # 2. Warna product (sirf asli match par), warna "samajh nahi aya"
             if not reply_content:
-                reply_content = await self.answer_product_question(store_id, text, lang)
+                reply_content = await self.answer_product_question(store_id, text, lang, strict=True)
             if not reply_content or "not found" in reply_content.lower() or "nahi mila" in reply_content.lower():
                 reply_content = (
                     "Aapka sawal samajh nahi aya. Kya aap product ka naam ya order number bata saktay hain?"
@@ -293,12 +293,17 @@ class CustomerSupportHandler:
         query: str,
         language: str = "en",
         knowledge_hits: Optional[list[dict]] = None,
+        strict: bool = False,
     ) -> str:
         """Answer product questions using live DB catalog (never guessed).
 
         knowledge_hits: owner ki knowledge base ke passages. Koi product match na ho
         to inhi se jawab diya jata hai (arbitrary pehla product dikhane se behtar);
         warna FAQ ke taur par LLM prompt mein jaate hain.
+
+        strict: sirf asli (stopword ke ilawa) matching alfaz se product chuno. Koi product
+        match na ho (ya catalog khali ho) to "" return hota hai — arbitrary pehla product
+        ya "no products" message nahi — taake caller "samajh nahi aya" keh sake.
         """
         # Fetch active products for this store
         res = await self.db.execute(
@@ -307,6 +312,8 @@ class CustomerSupportHandler:
         products = res.scalars().all()
 
         if not products:
+            if strict:
+                return ""
             return (
                 "Abhi store par koi products available nahi hain."
                 if language in ("roman_urdu", "urdu")
@@ -315,6 +322,10 @@ class CustomerSupportHandler:
 
         # Score matching products by token overlap
         tokens = set(re.findall(r"\b\w{3,}\b", query.lower()))
+        if strict:
+            tokens -= STOPWORDS
+            if not tokens:
+                return ""
         scored = []
         for p in products:
             title_tokens = set(re.findall(r"\b\w{3,}\b", (p.title or "").lower()))
@@ -335,6 +346,9 @@ class CustomerSupportHandler:
             answer = await self.answer_from_knowledge(query, language, knowledge_hits)
             if answer:
                 return answer
+
+        if not top_matches and strict:
+            return ""
 
         if not top_matches:
             # Fallback to the first product if general inquiry

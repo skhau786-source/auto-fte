@@ -127,6 +127,65 @@ async def test_try_policy_answer_empty_when_kb_has_nothing_or_not_policy():
     assert await handler._try_policy_answer(1, "I want a refund", "en") == ""
 
 
+class _Rows:
+    def __init__(self, rows):
+        self._rows = rows
+
+    def scalars(self):
+        return self
+
+    def all(self):
+        return self._rows
+
+
+class FakeDB:
+    """Sirf products aur variants ki do queries samajhta hai."""
+
+    def __init__(self, products, variants):
+        self.products, self.variants = products, variants
+
+    async def execute(self, stmt):
+        sql = str(stmt)
+        return _Rows(self.products if "FROM products" in sql else self.variants)
+
+
+class Obj:
+    def __init__(self, **kw):
+        self.__dict__.update(kw)
+
+
+BACKPACK = Obj(id=1, title="Canvas Backpack", description="Sturdy bag to carry about all day", product_type="Bags")
+VARIANT = Obj(id=1, product_id=1, sku="CB-O", price=5400, inventory_quantity=30, platform_variant_id="v1")
+
+
+def catalog_handler(products=(BACKPACK,)):
+    db = FakeDB(list(products), [VARIANT])
+    return CustomerSupportHandler(db=db, llm_client=FakeLLM(error=LLMError("no key")))
+
+
+async def test_strict_unrelated_question_gets_no_product():
+    # "about" description mein hai, lekin stopword hai — match nahi hona chahiye
+    assert await catalog_handler().answer_product_question(1, "tell me about quantum physics", "en", strict=True) == ""
+
+
+async def test_strict_only_stopwords_gets_no_product():
+    assert await catalog_handler().answer_product_question(1, "what do you do", "en", strict=True) == ""
+
+
+async def test_strict_real_product_match_still_answers():
+    answer = await catalog_handler().answer_product_question(1, "do you have a backpack", "en", strict=True)
+    assert "Canvas Backpack" in answer
+
+
+async def test_strict_empty_catalog_returns_empty_not_message():
+    assert await catalog_handler(products=()).answer_product_question(1, "random words here", "en", strict=True) == ""
+
+
+async def test_non_strict_keeps_old_first_product_fallback():
+    answer = await catalog_handler().answer_product_question(1, "tell me about quantum physics", "en")
+    assert "Canvas Backpack" in answer
+
+
 def test_trim_passage_cuts_at_sentence_boundary():
     text = "First sentence here. " * 60
     trimmed = CustomerSupportHandler._trim_passage(text, limit=100)
