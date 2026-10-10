@@ -28,8 +28,15 @@ from src.domains.agents.customer_support.rules import (
     detect_language,
     format_product_answer,
     build_rag_context,
+    parse_quantity,
+    NUMBER_WORDS,
+    MAX_CART_QUANTITY,
 )
-from src.domains.agents.customer_support.shopify_storefront_client import ShopifyStorefrontClient
+from src.domains.agents.customer_support.shopify_storefront_client import (
+    ShopifyStorefrontClient,
+    StorefrontError,
+    StorefrontNotConfigured,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -67,9 +74,19 @@ def _norm_token(token: str) -> str:
     return token[:-1] if len(token) > 3 and token.endswith("s") else token
 
 
-def _query_words(query: str) -> list[str]:
+# Extra words that only mean "put it in my cart" (not part of a product name).
+CART_STOPWORDS = frozenset(
+    "add cart buy order purchase checkout put place basket bag item items piece pieces pcs pc qty quantity "
+    "now daal daalo dal karo kar kardo dedo de nikal remove".split()
+) | frozenset(NUMBER_WORDS)
+
+
+def _query_words(query: str, extra_stop: frozenset = frozenset()) -> list[str]:
     """Meaningful words of the customer's question, original spelling kept (used in "not found" replies)."""
-    return [w for w in re.findall(r"\w+", query) if len(w) >= 2 and w.lower() not in PRODUCT_STOPWORDS]
+    return [
+        w for w in re.findall(r"\w+", query)
+        if len(w) >= 2 and w.lower() not in PRODUCT_STOPWORDS and w.lower() not in extra_stop
+    ]
 
 
 def _title_tokens(title: str) -> set[str]:
@@ -431,6 +448,25 @@ class CustomerSupportHandler:
             )
             return f"{intro}\n\n{best}"
 
+    @staticmethod
+    def _match_products(products, query: str, extra_stop: frozenset = frozenset()):
+        """(meaningful words, matching products best-first). A product matches only if the question
+        names it: >= 1/3 of its title and >= half of the customer's meaningful words belong to it."""
+        words = _query_words(query, extra_stop)
+        query_tokens = {_norm_token(w) for w in words}
+        matches = []
+        for p in products:
+            title_tokens = _title_tokens(p.title)
+            hit = query_tokens & title_tokens
+            if hit and 3 * len(hit) >= len(title_tokens) and 2 * len(hit) >= len(query_tokens):
+                matches.append({
+                    "product": p,
+                    "title_tokens": title_tokens,
+                    "score": len(hit) / len(title_tokens) + len(hit) / len(query_tokens),
+                })
+        matches.sort(key=lambda m: m["score"], reverse=True)
+        return words, matches
+
     async def answer_product_question(
         self,
         store_id: int,
@@ -467,9 +503,8 @@ class CustomerSupportHandler:
 
         # A product matches only if the customer's question names it (title match). Descriptions are
         # NOT used for matching and there is NO "first product" fallback: unknown product -> "not found".
-        words = _query_words(query)
-        query_tokens = {_norm_token(w) for w in words}
-        if not query_tokens:
+        words, matches = self._match_products(products, query)
+        if not words:
             return "" if strict else (
                 "Aap kis product ke baare mein poochna chahte hain? Barah-e-karam uska naam bata dein."
                 if roman
@@ -477,16 +512,11 @@ class CustomerSupportHandler:
             )
 
         scored = []
-        for p in products:
-            title_tokens = _title_tokens(p.title)
-            hit = query_tokens & title_tokens
-            # >= 1/3 of the title named, and at least half of what the customer said belongs to this title
-            if hit and 3 * len(hit) >= len(title_tokens) and 2 * len(hit) >= len(query_tokens):
-                var_res = await self.db.execute(
-                    select(Variant).where(Variant.product_id == p.id)
-                )
-                score = len(hit) / len(title_tokens) + len(hit) / len(query_tokens)
-                scored.append({"product": p, "variants": var_res.scalars().all(), "score": score})
+        for m in matches:
+            var_res = await self.db.execute(
+                select(Variant).where(Variant.product_id == m["product"].id)
+            )
+            scored.append({"product": m["product"], "variants": var_res.scalars().all(), "score": m["score"]})
 
         scored.sort(key=lambda x: x["score"], reverse=True)
         top_matches = scored[: self.settings.MAX_RAG_PRODUCTS]
@@ -597,6 +627,30 @@ class CustomerSupportHandler:
 
         return f"Order **#{order.order_number or order.platform_order_id}** (Total: ${total:.2f}) status is currently **{f_status}**. Payment: **{pay_status}**."
 
+    # ─── Cart ───────────────────────────────────────────────────
+
+    async def _cart_failure(
+        self, conversation_id: int, reason: str, language: str, not_configured: bool = False
+    ) -> str:
+        """Cart could not be created: hand the chat to a human and say so. Never a success message."""
+        await self.handoff_to_human(conversation_id, reason=reason)
+        roman = language in ("roman_urdu", "urdu")
+        if not_configured:
+            return (
+                "Is store par cart abhi set up nahi hai, is liye item add nahi ho saka. "
+                "Maine aapki request support team ko bhej di hai."
+                if roman
+                else "Cart checkout isn't set up for this store yet, so I couldn't add the item. "
+                "I've alerted our support team to help you."
+            )
+        return (
+            "Item cart me add nahi ho saka — store ki cart service ne error diya. "
+            "Maine support team ko bata diya hai."
+            if roman
+            else "I couldn't add that to your cart because the store's cart service returned an error. "
+            "I've alerted our support team."
+        )
+
     async def add_to_cart(
         self,
         store_id: int,
@@ -604,44 +658,175 @@ class CustomerSupportHandler:
         text: str,
         language: str = "en",
     ) -> str:
-        """Handle add to cart via Storefront client with dev-mode."""
-        # Find store
+        """Add the product the customer NAMED, in the quantity they asked for, to a real Shopify cart.
+
+        Replies with Shopify's own checkout URL only after Shopify confirmed the cart. A missing
+        Storefront token or any Shopify error hands the chat to a human; nothing is ever mocked.
+        """
+        roman = language in ("roman_urdu", "urdu")
+
+        # 1. Storefront configuration (shop domain from the store, token from settings)
         res = await self.db.execute(select(Store).where(Store.id == store_id))
         store = res.scalar_one_or_none()
-        shop_domain = store.shop_domain if store else "demo.myshopify.com"
-
-        client = self.storefront or ShopifyStorefrontClient(
-            shop_domain=shop_domain,
-            access_token=self.settings.STOREFRONT_ACCESS_TOKEN,
-        )
-
-        # Resolve variant
-        var_res = await self.db.execute(
-            select(Variant).join(Product).where(Product.store_id == store_id).limit(1)
-        )
-        variant = var_res.scalar_one_or_none()
-
-        if not variant:
-            await self.handoff_to_human(conversation_id, reason=f"Could not resolve product for cart: {text}")
-            return (
-                "Main product pehchan nahi saka. Ek human agent aapki madad karega."
-                if language in ("roman_urdu", "urdu")
-                else "I couldn't identify the exact product variant to add. I've alerted our team to assist you."
+        client = self.storefront
+        if client is None:
+            domain = (store.shop_domain if store else "") or ""
+            token = self.settings.STOREFRONT_ACCESS_TOKEN
+            if store is None or store.platform not in (None, "shopify") or not domain or not token:
+                return await self._cart_failure(
+                    conversation_id,
+                    "Storefront cart not configured (missing shop domain or STOREFRONT_ACCESS_TOKEN)",
+                    language,
+                    not_configured=True,
+                )
+            client = ShopifyStorefrontClient(
+                shop_domain=domain,
+                access_token=token,
+                api_url=self.settings.SHOPIFY_STOREFRONT_API_URL,
             )
+
+        # 2. Which product? (title match only; numbers that aren't part of a product name are quantities)
+        products = (
+            await self.db.execute(select(Product).where(Product.store_id == store_id))
+        ).scalars().all()
+        title_union: set[str] = set()
+        for p in products:
+            title_union |= _title_tokens(p.title)
+        stray_numbers = frozenset(n for n in re.findall(r"\d+", text) if n not in title_union)
+        words, matches = self._match_products(products, text, CART_STOPWORDS | stray_numbers)
+
+        if not words:
+            return (
+                "Aap kaunsa product cart me daalna chahte hain? Barah-e-karam uska naam bata dein."
+                if roman
+                else "Which product would you like to add to your cart? Please tell me its name."
+            )
+        if not matches:
+            # Show the name as the customer typed it: drop only the number that is the quantity.
+            name_words = _query_words(text, CART_STOPWORDS)
+            asked_qty, explicit = parse_quantity(text, set())
+            if explicit and str(asked_qty) in name_words:
+                name_words.remove(str(asked_qty))
+            name = " ".join(name_words)
+            return (
+                f"{name} naam ka koi product nahi mila, is liye cart me add nahi kar saka."
+                if roman
+                else f"I couldn't find a product called {name}, so I haven't added anything to your cart."
+            )
+        top = matches[0]
+        tied = [m for m in matches if abs(m["score"] - top["score"]) < 1e-9]
+        if len(tied) > 1:
+            names = ", ".join(m["product"].title for m in tied[:5])
+            return (
+                f"Mujhe ek se zyada products mile: {names}. Aap kaunsa lena chahte hain?"
+                if roman
+                else f"I found more than one match: {names}. Which one would you like?"
+            )
+        product = top["product"]
+
+        # 3. How many?
+        quantity, _explicit = parse_quantity(text, top["title_tokens"])
+        if quantity < 1 or quantity > MAX_CART_QUANTITY:
+            return (
+                f"Barah-e-karam 1 se {MAX_CART_QUANTITY} ke darmiyan quantity batayein."
+                if roman
+                else f"Please tell me a quantity between 1 and {MAX_CART_QUANTITY}."
+            )
+
+        # 4. Which variant?
+        variants = (
+            await self.db.execute(
+                select(Variant).where(Variant.product_id == product.id).order_by(Variant.id)
+            )
+        ).scalars().all()
+        if not variants:
+            return await self._cart_failure(
+                conversation_id, f"Product {product.id} has no variants to add to a cart", language
+            )
+
+        if len(variants) == 1:
+            variant = variants[0]
+        else:
+            ignore = (
+                {_norm_token(t) for t in top["title_tokens"]}
+                | {_norm_token(w) for w in PRODUCT_STOPWORDS | CART_STOPWORDS}
+            )
+            asked = {_norm_token(t) for t in re.findall(r"[a-zA-Z0-9]+", text.lower())} - ignore
+            scored_variants = []
+            for v in variants:
+                v_tokens = {
+                    _norm_token(t) for t in re.findall(r"[a-zA-Z0-9]+", f"{v.title} {v.sku or ''}".lower())
+                } - {"default", "title"}
+                scored_variants.append((len(asked & v_tokens), v))
+            best = max(score for score, _ in scored_variants)
+            winners = [v for score, v in scored_variants if score == best]
+            if best == 0 or len(winners) != 1:
+                options = ", ".join(v.title for v in variants[:8])
+                return (
+                    f"{product.title} kai options me hai: {options}. Aap kaunsa lena chahte hain?"
+                    if roman
+                    else f"{product.title} comes in several options: {options}. Which one would you like?"
+                )
+            variant = winners[0]
+
+        label = product.title + (f" ({variant.title})" if len(variants) > 1 else "")
+
+        # 5. Stock limit (catalog stock is the source of truth for this bot)
+        available = variant.inventory_quantity or 0
+        if available <= 0:
+            return (
+                f"{label} abhi out of stock hai, is liye cart me add nahi ho saka."
+                if roman
+                else f"{label} is currently out of stock, so I haven't added it to your cart."
+            )
+        if quantity > available:
+            return (
+                f"{label} ke sirf {available} units available hain. Barah-e-karam {available} ya us se kam batayein."
+                if roman
+                else f"Only {available} of {label} {'is' if available == 1 else 'are'} available. "
+                f"Please ask for {available} or fewer."
+            )
+
+        # 6. Real Shopify request with the exact variant + quantity
+        platform_variant_id = str(variant.platform_variant_id or "").strip()
+        if not platform_variant_id:
+            return await self._cart_failure(
+                conversation_id, f"Variant {variant.id} has no platform_variant_id", language
+            )
+        merchandise_id = (
+            platform_variant_id
+            if platform_variant_id.startswith("gid://")
+            else f"gid://shopify/ProductVariant/{platform_variant_id}"
+        )
 
         try:
-            cart_resp = await client.create_cart([
-                {"merchandiseId": f"gid://shopify/ProductVariant/{variant.platform_variant_id}", "quantity": 1}
-            ])
-            return (
-                f"Item cart me add ho gaya hai! Checkout link: {cart_resp.get('checkout_url')}"
-                if language in ("roman_urdu", "urdu")
-                else f"Item has been added to your cart! You can complete checkout here: {cart_resp.get('checkout_url')}"
+            cart = await client.create_cart([{"merchandiseId": merchandise_id, "quantity": quantity}])
+        except StorefrontNotConfigured as e:
+            logger.error(f"Cart not configured: {e}")
+            return await self._cart_failure(
+                conversation_id, f"Cart not configured: {e}", language, not_configured=True
             )
-        except Exception as e:
+        except StorefrontError as e:
             logger.error(f"Cart operation error: {e}")
-            await self.handoff_to_human(conversation_id, reason=f"Cart API error: {str(e)}")
-            return "Cart service is temporarily unavailable. A support agent will assist you shortly."
+            return await self._cart_failure(conversation_id, f"Cart API error: {e}", language)
+        except Exception as e:  # noqa: BLE001 - never let a cart problem become a fake success
+            logger.error(f"Unexpected cart error: {e}")
+            return await self._cart_failure(conversation_id, f"Cart API error: {type(e).__name__}", language)
+
+        checkout_url = cart.get("checkout_url")
+        confirmed = cart.get("total_quantity")
+        if not checkout_url or (confirmed is not None and int(confirmed) != quantity):
+            return await self._cart_failure(
+                conversation_id,
+                f"Shopify cart did not match the request (asked {quantity}, got {confirmed}, url={bool(checkout_url)})",
+                language,
+            )
+
+        return (
+            f"{quantity} × {label} cart me add ho gaya hai! Checkout link: {checkout_url}"
+            if roman
+            else f"Added {quantity} × {label} to your cart. You can complete checkout here: {checkout_url}"
+        )
 
     async def handoff_to_human(self, conversation_id: int, reason: str) -> None:
         """Escalate conversation to human agent."""

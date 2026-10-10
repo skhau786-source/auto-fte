@@ -44,8 +44,10 @@ async def seed_store(db) -> Store:
     await db.flush()
     db.add_all(
         [
-            Variant(product_id=tee.id, title="M", sku="TEE-M", price=24.99, inventory_quantity=142),
-            Variant(product_id=jacket.id, title="L", sku="JKT-L", price=89.99, inventory_quantity=8),
+            Variant(product_id=tee.id, title="M", sku="TEE-M", price=24.99, inventory_quantity=142,
+                    platform_variant_id="5001"),
+            Variant(product_id=jacket.id, title="L", sku="JKT-L", price=89.99, inventory_quantity=8,
+                    platform_variant_id="5002"),
         ]
     )
 

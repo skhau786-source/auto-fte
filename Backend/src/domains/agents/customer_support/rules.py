@@ -139,3 +139,41 @@ def build_rag_context(products_and_variants: list) -> str:
             f"Variants: {'; '.join(var_strs)}\n"
         )
     return "\n---\n".join(lines)
+
+
+# ─── Cart quantity parsing ─────────────────────────────────────
+
+# Unambiguous number words (English + Roman Urdu). "do" (= 2 in Urdu) is handled separately
+# because it also means "give" / "do" ("cart me daal do", "do you have ...").
+NUMBER_WORDS = {
+    "one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7, "eight": 8, "nine": 9, "ten": 10,
+    "ek": 1, "teen": 3, "char": 4, "chaar": 4, "panch": 5, "paanch": 5, "chhe": 6, "che": 6, "chay": 6,
+    "saat": 7, "aath": 8, "nau": 9, "das": 10,
+}
+_QTY_BLOCKING_PREV = {"size", "no", "number", "model", "sku", "id", "item"}
+_UNIT_AFTER = {"x", "pcs", "pc", "pieces", "piece", "items", "units", "unit"}
+MAX_CART_QUANTITY = 99
+
+
+def parse_quantity(text: str, product_title_tokens: Optional[set[str]] = None) -> tuple[Optional[int], bool]:
+    """Quantity the customer asked for: (value, explicit).
+
+    Reads digits ("2", "2x", "x2") and number words in English and Roman Urdu ("two", "teen").
+    Numbers that belong to the product's own name ("Toaster 9000") and numbers after "size"/"model"
+    are not quantities. No number at all -> (1, False). Returns (0, True) etc. unchanged so the
+    caller can reject nonsense like 0.
+    """
+    title_tokens = {t.lower() for t in (product_title_tokens or set())}
+    tokens = re.findall(r"[a-zA-Z]+|\d+", text.lower())
+    for i, tok in enumerate(tokens):
+        prev = tokens[i - 1] if i else ""
+        nxt = tokens[i + 1] if i + 1 < len(tokens) else ""
+        if tok.isdigit():
+            if tok in title_tokens or prev in _QTY_BLOCKING_PREV or len(tok) > 4:
+                continue
+            return int(tok), True
+        if tok in NUMBER_WORDS and tok not in title_tokens:
+            return NUMBER_WORDS[tok], True
+        if tok == "do" and nxt and nxt in title_tokens and prev not in {"daal", "dal", "daalo", "kar", "karo", "de", "dedo"}:
+            return 2, True  # "do Denim Jacket chahiye"
+    return 1, False
