@@ -3,7 +3,10 @@
 
 import { buildApiUrl } from "./config";
 
-export const AUTH_TOKEN_KEY = "digital-fte-token";
+export const AUTH_TOKEN_KEY = "digital-fte-access-token";
+// Older key written by previous builds; only ever removed, never read.
+export const LEGACY_TOKEN_KEY = "digital-fte-token";
+export const AUTH_STORAGE_KEY = "digital-fte-auth";
 
 export class ApiError extends Error {
   status: number;
@@ -18,6 +21,25 @@ export function getToken(): string | null {
     return window.localStorage.getItem(AUTH_TOKEN_KEY);
   } catch {
     return null;
+  }
+}
+
+export function saveToken(token: string): void {
+  try {
+    window.localStorage.setItem(AUTH_TOKEN_KEY, token);
+    window.localStorage.removeItem(LEGACY_TOKEN_KEY);
+  } catch {
+    // Storage unavailable (private mode / blocked): session simply won't persist.
+  }
+}
+
+export function clearAuthStorage(): void {
+  for (const key of [AUTH_TOKEN_KEY, AUTH_STORAGE_KEY, LEGACY_TOKEN_KEY]) {
+    try {
+      window.localStorage.removeItem(key);
+    } catch {
+      // Ignore storage failures.
+    }
   }
 }
 

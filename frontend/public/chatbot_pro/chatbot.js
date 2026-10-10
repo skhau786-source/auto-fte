@@ -174,7 +174,7 @@
 
     function getToken() {
         return (
-            localStorage.getItem("digital-fte-token") ||
+            localStorage.getItem("digital-fte-access-token") ||
             localStorage.getItem("access_token") ||
             localStorage.getItem("token") ||
             sessionStorage.getItem("access_token") ||

@@ -192,7 +192,7 @@
 
     function getToken() {
         const possibleKeys = [
-            "digital-fte-token",
+            "digital-fte-access-token",
             "access_token",
             "token",
             "jwt"
