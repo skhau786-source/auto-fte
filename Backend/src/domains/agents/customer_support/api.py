@@ -71,6 +71,7 @@ async def chat(
         text=body.message,
         conversation_id=body.conversation_id,
         language=body.language,
+        authenticated_email=current_user.email,
     )
     await db.commit()
     return result

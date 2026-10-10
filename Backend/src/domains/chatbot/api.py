@@ -223,6 +223,7 @@ async def _chat(
         text=body.query,
         conversation_id=body.conversation_id,
         language=body.preferred_language or "",
+        authenticated_email=current_user.email,
     )
 
     await db.commit()

@@ -82,11 +82,15 @@ class CustomerSupportHandler:
         conversation_id: Optional[int] = None,
         language: str = "",
         public: bool = False,
+        authenticated_email: Optional[str] = None,
     ) -> dict:
         """Main chat entry point: ingest user message, route intent, produce reply.
 
         public=True: anjaan website visitor. Sirf sawal-jawab, product price/stock aur policy
         (knowledge base). Order lookup (customer data) aur cart actions band — woh human ko jate hain.
+
+        authenticated_email: logged-in user ki email (auth token se, chat text se kabhi nahi);
+        order lookup sirf isi email ke orders dikhata hai.
         """
         lang = language or detect_language(text)
 
@@ -161,7 +165,9 @@ class CustomerSupportHandler:
                         conversation.id, f"Order question from website visitor: '{text}'", lang
                     )
                 else:
-                    reply_content = await self.lookup_order_status(store_id, text, lang)
+                    reply_content = await self.lookup_order_status(
+                        store_id, text, lang, authenticated_email=authenticated_email
+                    )
 
         elif intent == Intent.CART_ADD:
             if public:
@@ -489,28 +495,59 @@ class CustomerSupportHandler:
                 description=prod.description or "",
             )
 
-    async def lookup_order_status(self, store_id: int, text: str, language: str = "en") -> str:
-        """Lookup order status using local synced orders table."""
-        # Find order number (digits or #1234) or email
-        order_match = re.search(r"#?(\d{3,8})", text)
-        email_match = re.search(r"[\w\.-]+@[\w\.-]+", text)
+    async def lookup_order_status(
+        self,
+        store_id: int,
+        text: str,
+        language: str = "en",
+        authenticated_email: Optional[str] = None,
+    ) -> str:
+        """Lookup order status using local synced orders table.
 
-        query = select(Order).where(Order.store_id == store_id)
+        authenticated_email: email of the logged-in user, taken from the auth token by the caller
+        (never from the chat text). Only that user's own orders are returned. A missing order and
+        someone else's order get the SAME reply so the bot never confirms an order exists.
+        """
+        roman = language in ("roman_urdu", "urdu")
+        not_found = (
+            "Aapke account par yeh order nahi mila."
+            if roman
+            else "I couldn't find that order on your account."
+        )
+
+        if not authenticated_email:
+            # Fail closed: without a verified identity we never read order data.
+            return not_found
+
+        # Emails are removed first so digits inside an address aren't mistaken for an order number.
+        email_match = re.search(r"[\w\.-]+@[\w\.-]+", text)
+        text_wo_email = re.sub(r"[\w\.-]+@[\w\.-]+", " ", text)
+        order_match = re.search(r"#?\s?(\d{3,8})\b", text_wo_email)
+
+        query = select(Order).where(
+            Order.store_id == store_id,
+            func.lower(Order.customer_email) == authenticated_email.strip().lower(),
+        )
 
         if order_match:
             order_num = order_match.group(1)
+            # Exact match only: "001" must not find order 1001.
             query = query.where(
                 or_(
                     Order.order_number == order_num,
-                    Order.platform_order_id.contains(order_num),
+                    Order.order_number == f"#{order_num}",
+                    Order.platform_order_id == order_num,
                 )
             )
         elif email_match:
-            query = query.where(Order.customer_email == email_match.group(0))
+            # A typed email is only honoured if it is the logged-in user's own address.
+            if email_match.group(0).lower() != authenticated_email.strip().lower():
+                return not_found
+            query = query.order_by(Order.ordered_at.desc())
         else:
             return (
                 "Order status check karne ke liye apna Order Number (e.g. #1001) ya Email provide karein."
-                if language in ("roman_urdu", "urdu")
+                if roman
                 else "Please provide your Order Number (e.g. #1001) or email address to check the status."
             )
 
@@ -518,11 +555,7 @@ class CustomerSupportHandler:
         order = res.scalar_one_or_none()
 
         if not order:
-            return (
-                f"Is detail se koi order nahi mila. Barah-e-karam apna sahih order number check karein."
-                if language in ("roman_urdu", "urdu")
-                else f"No order found matching your details. Please double-check your order number."
-            )
+            return not_found
 
         f_status = order.fulfillment_status or "Processing"
         pay_status = order.financial_status or "Paid"

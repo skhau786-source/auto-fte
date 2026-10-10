@@ -145,7 +145,7 @@ class SilentLLM:
 def public_handler(session, calls):
     handler = CustomerSupportHandler(db=session, llm_client=SilentLLM())
 
-    async def lookup(store_id, text, language="en"):
+    async def lookup(store_id, text, language="en", authenticated_email=None):
         calls.append("lookup_order_status")
         return "ORDER DATA"
 
