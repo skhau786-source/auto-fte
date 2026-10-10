@@ -50,6 +50,33 @@ Be concise and friendly.
 
 KNOWLEDGE_NOT_COVERED = "NOT_COVERED"
 
+# Words that say nothing about WHICH product is meant (English + Roman Urdu). They are dropped from the
+# customer's question before it is matched against catalog titles.
+PRODUCT_STOPWORDS = STOPWORDS | frozenset(
+    "price prices cost costs stock available availability much many have sell selling buy "
+    "detail details info information size color colour material "
+    # Roman Urdu
+    "qeemat qimat kimat keemat daam rate batao bataiye bata dijiye chahiye mujhe hamare "
+    "hai hain mein me ka ki ke kya kitna kitne kitni".split()
+)
+
+
+def _norm_token(token: str) -> str:
+    """Lowercase + crude plural strip so "jackets" matches "Jacket"."""
+    token = token.lower()
+    return token[:-1] if len(token) > 3 and token.endswith("s") else token
+
+
+def _query_words(query: str) -> list[str]:
+    """Meaningful words of the customer's question, original spelling kept (used in "not found" replies)."""
+    return [w for w in re.findall(r"\w+", query) if len(w) >= 2 and w.lower() not in PRODUCT_STOPWORDS]
+
+
+def _title_tokens(title: str) -> set[str]:
+    raw = re.findall(r"\w+", (title or "").lower())
+    meaningful = [t for t in raw if t not in PRODUCT_STOPWORDS]
+    return {_norm_token(t) for t in (meaningful or raw)}
+
 # Handoff ke dauran bot chup rehta hai; sirf ek dafa yeh bolta hai (zabaan ke hisaab se).
 HANDOFF_WAITING_MESSAGES = {
     "en": "Our team will get back to you shortly.",
@@ -427,34 +454,39 @@ class CustomerSupportHandler:
             select(Product).where(Product.store_id == store_id)
         )
         products = res.scalars().all()
+        roman = language in ("roman_urdu", "urdu")
 
         if not products:
             if strict:
                 return ""
             return (
                 "Abhi store par koi products available nahi hain."
-                if language in ("roman_urdu", "urdu")
+                if roman
                 else "There are currently no products available in the store catalog."
             )
 
-        # Score matching products by token overlap
-        tokens = set(re.findall(r"\b\w{3,}\b", query.lower()))
-        if strict:
-            tokens -= STOPWORDS
-            if not tokens:
-                return ""
+        # A product matches only if the customer's question names it (title match). Descriptions are
+        # NOT used for matching and there is NO "first product" fallback: unknown product -> "not found".
+        words = _query_words(query)
+        query_tokens = {_norm_token(w) for w in words}
+        if not query_tokens:
+            return "" if strict else (
+                "Aap kis product ke baare mein poochna chahte hain? Barah-e-karam uska naam bata dein."
+                if roman
+                else "Which product would you like to know about? Please tell me its name."
+            )
+
         scored = []
         for p in products:
-            title_tokens = set(re.findall(r"\b\w{3,}\b", (p.title or "").lower()))
-            desc_tokens = set(re.findall(r"\b\w{3,}\b", (p.description or "").lower()))
-            score = len(tokens & title_tokens) * 3 + len(tokens & desc_tokens)
-            if score > 0 or not tokens:
-                # Fetch variants
+            title_tokens = _title_tokens(p.title)
+            hit = query_tokens & title_tokens
+            # >= 1/3 of the title named, and at least half of what the customer said belongs to this title
+            if hit and 3 * len(hit) >= len(title_tokens) and 2 * len(hit) >= len(query_tokens):
                 var_res = await self.db.execute(
                     select(Variant).where(Variant.product_id == p.id)
                 )
-                variants = var_res.scalars().all()
-                scored.append({"product": p, "variants": variants, "score": score})
+                score = len(hit) / len(title_tokens) + len(hit) / len(query_tokens)
+                scored.append({"product": p, "variants": var_res.scalars().all(), "score": score})
 
         scored.sort(key=lambda x: x["score"], reverse=True)
         top_matches = scored[: self.settings.MAX_RAG_PRODUCTS]
@@ -464,16 +496,15 @@ class CustomerSupportHandler:
             if answer:
                 return answer
 
-        if not top_matches and strict:
-            return ""
-
         if not top_matches:
-            # Fallback to the first product if general inquiry
-            p = products[0]
-            var_res = await self.db.execute(
-                select(Variant).where(Variant.product_id == p.id)
+            if strict:
+                return ""
+            name = " ".join(words)
+            return (
+                f"{name} naam ka koi product nahi mila."
+                if roman
+                else f"I couldn't find a product called {name}."
             )
-            top_matches = [{"product": p, "variants": var_res.scalars().all(), "score": 0}]
 
         # Try LLM RAG with prompt
         rag_context = build_rag_context(top_matches)

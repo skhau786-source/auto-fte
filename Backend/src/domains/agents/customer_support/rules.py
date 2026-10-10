@@ -85,7 +85,8 @@ def classify_intent(
     product_patterns = [
         r"\bprice\b", r"\bcost\b", r"\bstock\b", r"\bavailable\b",
         r"\bsize\b", r"\bcolor\b", r"\bmaterial\b", r"kitna", r"kitne",
-        r"hai kya", r"\bhow much\b", "details", "info"
+        r"hai kya", r"\bhow much\b", "details", "info",
+        r"qeemat", r"keemat", r"kimat", r"qimat", r"\bdaam\b", r"\brate\b"
     ]
     if any(re.search(p, lowered) for p in product_patterns):
         return Intent.PRODUCT_QUESTION

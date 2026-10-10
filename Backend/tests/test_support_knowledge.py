@@ -181,9 +181,11 @@ async def test_strict_empty_catalog_returns_empty_not_message():
     assert await catalog_handler(products=()).answer_product_question(1, "random words here", "en", strict=True) == ""
 
 
-async def test_non_strict_keeps_old_first_product_fallback():
+async def test_non_strict_unknown_product_says_not_found_instead_of_first_product():
+    # Old behaviour (answer with products[0]) was removed: it invented an answer for unknown products.
     answer = await catalog_handler().answer_product_question(1, "tell me about quantum physics", "en")
-    assert "Canvas Backpack" in answer
+    assert answer == "I couldn't find a product called quantum physics."
+    assert "Canvas Backpack" not in answer
 
 
 def handler_with_topics(topics):
